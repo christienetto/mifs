@@ -4,3 +4,6 @@ DerivedData/
 *.xcuserstate
 xcuserdata/
 *.xcscmblueprint
+node_modules/
+.wrangler/
+.dev.vars

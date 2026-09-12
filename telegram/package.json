@@ -1,0 +1,15 @@
+{
+  "name": "mifs-telegram",
+  "private": true,
+  "type": "module",
+  "description": "MIFS for Telegram: the MIFS Mini App and its bot, served by one Cloudflare Worker.",
+  "scripts": {
+    "dev": "npx wrangler@4 dev",
+    "deploy": "npx wrangler@4 deploy",
+    "setup": "node --env-file=.dev.vars scripts/setup.mjs",
+    "test": "node --test test/"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

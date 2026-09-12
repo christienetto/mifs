@@ -1,0 +1,6 @@
+# Copy to .dev.vars (git-ignored) and fill in. `wrangler dev` and `npm run setup` read it;
+# `npx wrangler@4 secret bulk .dev.vars` uploads it to the deployed Worker.
+BOT_TOKEN=123456789:from-BotFather
+WEBHOOK_SECRET=any-random-string-from-openssl-rand-hex-32
+# For `npm run setup`: the deployed Worker's URL.
+# APP_URL=https://mifs-telegram.<account>.workers.dev

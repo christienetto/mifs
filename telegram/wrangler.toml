@@ -1,0 +1,18 @@
+name = "mifs-telegram"
+main = "src/worker.js"
+compatibility_date = "2026-09-01"
+
+# The MIFS Mini App. Requests that don't match a file here fall through to the Worker.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[vars]
+# Must match MIFS_TELEGRAM_BOT in ../project.yml.
+BOT_USERNAME = "MIFSAppBot"
+# <Team ID>.<bundle ID> of the MIFS iOS app, for universal links back into it (see ../project.yml).
+APPLE_APP_ID = "DRM6RX29P7.dev.kuchta.mifs"
+
+# Secrets, kept in .dev.vars (git-ignored; read by `wrangler dev`, uploaded with `npx wrangler@4 secret bulk .dev.vars`):
+#   BOT_TOKEN       from @BotFather
+#   WEBHOOK_SECRET  any random string; `npm run setup` registers it with Telegram

@@ -1,17 +1,33 @@
 import SwiftUI
 
+/// Somewhere a finished snippet can go, e.g. Messages or Telegram.
+struct SendDestination: Identifiable {
+    let id: String
+    /// Short name used when several destinations share the send row ("Telegram").
+    let name: String
+    /// Full action title ("Send in Telegram"); also the button's accessibility label.
+    let title: String
+    let symbol: String
+    let send: (Snippet) async throws -> Void
+}
+
 /// Pick the moment, preview it, send it. Hosted by both the app and the Messages extension.
 struct SnippetEditorView: View {
     @State private var model: SnippetEditorModel
-    let sendTitle: String
-    let onSend: (Snippet) async throws -> Void
+    let destinations: [SendDestination]
 
+    @State private var sending: SendDestination.ID?
     @State private var sendError: String?
 
     init(track: Track, sendTitle: String = "Send", onSend: @escaping (Snippet) async throws -> Void) {
+        self.init(track: track, destinations: [
+            SendDestination(id: "send", name: sendTitle, title: sendTitle, symbol: "arrow.up.message.fill", send: onSend),
+        ])
+    }
+
+    init(track: Track, destinations: [SendDestination]) {
         _model = State(initialValue: SnippetEditorModel(track: track))
-        self.sendTitle = sendTitle
-        self.onSend = onSend
+        self.destinations = destinations
     }
 
     var body: some View {
@@ -111,26 +127,44 @@ struct SnippetEditorView: View {
                     model.togglePreview()
                 }
 
-                Button {
-                    Task { await send() }
-                } label: {
-                    HStack(spacing: 8) {
-                        if model.isSaving {
-                            ProgressView().tint(.black)
-                        } else {
-                            Image(systemName: "arrow.up.message.fill")
-                        }
-                        Text(sendTitle).fontWeight(.semibold)
+                HStack(spacing: 10) {
+                    ForEach(destinations) { destination in
+                        sendButton(destination)
                     }
-                    .frame(maxWidth: .infinity, minHeight: 54)
-                    .background(.white, in: .capsule)
-                    .foregroundStyle(.black)
                 }
-                .buttonStyle(.plain)
-                .disabled(model.isSaving)
-                .accessibilityHint("Sends a \(Int(model.length)) second snippet")
             }
         }
+    }
+
+    private func sendButton(_ destination: SendDestination) -> some View {
+        let label = destinations.count > 1 ? destination.name : destination.title
+        return Button {
+            Task { await send(to: destination) }
+        } label: {
+            ViewThatFits(in: .horizontal) {
+                sendLabel(label, symbol: destination.symbol, isSending: sending == destination.id)
+                sendLabel(label, symbol: nil, isSending: sending == destination.id)
+            }
+            .frame(maxWidth: .infinity, minHeight: 54)
+            .background(.white, in: .capsule)
+            .foregroundStyle(.black)
+        }
+        .buttonStyle(.plain)
+        .disabled(model.isSaving || sending != nil)
+        .accessibilityLabel(destination.title)
+        .accessibilityHint("Sends a \(Int(model.length)) second snippet")
+    }
+
+    private func sendLabel(_ text: String, symbol: String?, isSending: Bool) -> some View {
+        HStack(spacing: 8) {
+            if isSending {
+                ProgressView().tint(.black)
+            } else if let symbol {
+                Image(systemName: symbol)
+            }
+            Text(text).fontWeight(.semibold).lineLimit(1)
+        }
+        .padding(.horizontal, 12)
     }
 
     private func failure(_ message: String) -> some View {
@@ -144,10 +178,12 @@ struct SnippetEditorView: View {
         .frame(height: 200)
     }
 
-    private func send() async {
+    private func send(to destination: SendDestination) async {
+        sending = destination.id
+        defer { sending = nil }
         do {
             let snippet = try await model.makeSnippet()
-            try await onSend(snippet)
+            try await destination.send(snippet)
         } catch is CancellationError {
         } catch {
             sendError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription

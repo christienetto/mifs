@@ -5,6 +5,7 @@ enum Theme {
     static let pink = Color(red: 1.0, green: 0.31, blue: 0.60)
     static let brandGradient = LinearGradient(colors: [violet, pink], startPoint: .topLeading, endPoint: .bottomTrailing)
     static let fallbackTint = UIColor(red: 0.24, green: 0.18, blue: 0.45, alpha: 1)
+    static let telegram = Color(red: 0.16, green: 0.63, blue: 0.87)
 }
 
 extension TimeInterval {

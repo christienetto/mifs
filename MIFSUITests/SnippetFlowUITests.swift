@@ -44,6 +44,34 @@ final class SnippetFlowUITests: XCTestCase {
         capture(app, "snippets")
     }
 
+    /// The editor offers Telegram beside Messages, and sending a catalog snippet there opens the MIFS Mini App.
+    /// Simulators don't have Telegram, so the t.me fallback link opens in Safari instead.
+    func testSendInTelegramOpensMiniApp() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 10))
+        search.tap()
+        search.typeText("Blinding Lights")
+
+        let result = app.buttons.containing(NSPredicate(format: "label CONTAINS[c] 'Blinding Lights'")).firstMatch
+        XCTAssertTrue(result.waitForExistence(timeout: 15))
+        result.tap()
+
+        let telegram = app.buttons["Send in Telegram"]
+        XCTAssertTrue(telegram.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["Send in Messages"].exists)
+        sleep(2)
+        capture(app, "editor-destinations")
+
+        telegram.tap()
+        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
+        XCTAssertTrue(safari.wait(for: .runningForeground, timeout: 15), "The t.me link should open when Telegram isn't installed")
+        sleep(4)
+        capture(safari, "telegram-link")
+    }
+
     private func capture(_ app: XCUIApplication, _ name: String) {
         let shot = app.screenshot()
         let attachment = XCTAttachment(screenshot: shot)

@@ -41,12 +41,19 @@ struct SnippetsScreen: View {
                     .swipeActions(edge: .leading) {
                         Button("Send", systemImage: "arrow.up.message.fill") { send(snippet) }
                             .tint(Theme.violet)
+                        if TelegramLink.isConfigured {
+                            Button("Telegram", systemImage: "paperplane.fill") { sendToTelegram(snippet) }
+                                .tint(Theme.telegram)
+                        }
                     }
                     .swipeActions(edge: .trailing) {
                         Button("Delete", systemImage: "trash", role: .destructive) { store.delete(snippet) }
                     }
                     .contextMenu {
                         Button("Send in Messages", systemImage: "arrow.up.message") { send(snippet) }
+                        if TelegramLink.isConfigured {
+                            Button("Send in Telegram", systemImage: "paperplane") { sendToTelegram(snippet) }
+                        }
                         Button("Share…", systemImage: "square.and.arrow.up") { sharing = snippet }
                         if snippet.track.kind == .catalog {
                             Button("Make Another Snippet", systemImage: "scissors") { router.edit(snippet.track) }
@@ -61,5 +68,9 @@ struct SnippetsScreen: View {
 
     private func send(_ snippet: Snippet) {
         Task { await composer.send(snippet) }
+    }
+
+    private func sendToTelegram(_ snippet: Snippet) {
+        Task { await composer.sendToTelegram(snippet) }
     }
 }

@@ -33,8 +33,16 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>tg</string>
+	</array>
 	<key>MIFSAppGroup</key>
 	<string>$(MIFS_APP_GROUP)</string>
+	<key>MIFSTelegramBot</key>
+	<string>$(MIFS_TELEGRAM_BOT)</string>
+	<key>MIFSTelegramHost</key>
+	<string>$(MIFS_TELEGRAM_HOST)</string>
 	<key>NSAppleMusicUsageDescription</key>
 	<string>MIFS reads songs you own in your music library so you can clip and send them.</string>
 	<key>UIApplicationSceneManifest</key>
