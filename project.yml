@@ -1,0 +1,136 @@
+name: MIFS
+
+options:
+  bundleIdPrefix: dev.kuchta
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+  xcodeVersion: "26.0"
+
+settings:
+  base:
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: DRM6RX29P7
+    SWIFT_VERSION: "6.0"
+    SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+    SWIFT_APPROACHABLE_CONCURRENCY: YES
+    TARGETED_DEVICE_FAMILY: "1,2"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    CODE_SIGN_STYLE: Automatic
+    MIFS_APP_GROUP: group.dev.kuchta.mifs
+
+targets:
+  MIFS:
+    type: application
+    platform: iOS
+    sources:
+      - path: MIFS
+      - path: Shared
+    dependencies:
+      - target: MIFSMessages
+        embed: true
+        codeSign: true
+    entitlements:
+      path: MIFS/MIFS.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - $(MIFS_APP_GROUP)
+    info:
+      path: MIFS/Info.plist
+      properties:
+        CFBundleDisplayName: MIFS
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        MIFSAppGroup: $(MIFS_APP_GROUP)
+        ITSAppUsesNonExemptEncryption: false
+        CFBundleURLTypes:
+          - CFBundleURLName: dev.kuchta.mifs
+            CFBundleURLSchemes: [mifs]
+        NSAppleMusicUsageDescription: MIFS reads songs you own in your music library so you can clip and send them.
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.kuchta.mifs
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+
+  MIFSMessages:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: MIFSMessages
+      - path: Shared
+    entitlements:
+      path: MIFSMessages/MIFSMessages.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - $(MIFS_APP_GROUP)
+    info:
+      path: MIFSMessages/Info.plist
+      properties:
+        CFBundleDisplayName: MIFS
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        MIFSAppGroup: $(MIFS_APP_GROUP)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.message-payload-provider
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).MessagesViewController
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.kuchta.mifs.messages
+        ASSETCATALOG_COMPILER_APPICON_NAME: "iMessage App Icon"
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+
+  MIFSTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: MIFSTests
+    dependencies:
+      - target: MIFS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.kuchta.mifs.tests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/MIFS.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/MIFS
+        BUNDLE_LOADER: $(TEST_HOST)
+
+  MIFSUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: MIFSUITests
+    dependencies:
+      - target: MIFS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.kuchta.mifs.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: "5.0"
+        SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
+        TEST_TARGET_NAME: MIFS
+
+schemes:
+  MIFS:
+    build:
+      targets:
+        MIFS: all
+        MIFSMessages: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - MIFSTests
+        - MIFSUITests
