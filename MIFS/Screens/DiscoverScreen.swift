@@ -37,9 +37,7 @@ struct DiscoverScreen: View {
                 }
             }
             .navigationDestination(for: Track.self) { track in
-                SnippetEditorView(track: track, sendTitle: "Send in Messages") { snippet in
-                    await composer.send(snippet)
-                }
+                SnippetEditorView(track: track, destinations: composer.destinations)
                 .toolbarBackground(.hidden, for: .navigationBar)
                 .toolbar(.hidden, for: .tabBar)
             }

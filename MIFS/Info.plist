@@ -33,10 +33,18 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>tg</string>
+	</array>
 	<key>MIFSAppGroup</key>
 	<string>$(MIFS_APP_GROUP)</string>
 	<key>MIFSServerURL</key>
 	<string>$(MIFS_SERVER_URL)</string>
+	<key>MIFSTelegramBot</key>
+	<string>$(MIFS_TELEGRAM_BOT)</string>
+	<key>MIFSTelegramHost</key>
+	<string>$(MIFS_TELEGRAM_HOST)</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

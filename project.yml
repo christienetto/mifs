@@ -24,6 +24,10 @@ settings:
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     CODE_SIGN_STYLE: Automatic
     MIFS_APP_GROUP: group.dev.kuchta.mifs
+    # Telegram bot whose Main Mini App is MIFS (see telegram/README.md). Empty hides Telegram sending.
+    MIFS_TELEGRAM_BOT: MIFSAppBot
+    # Host of the MIFS Telegram server (telegram/); its /app/… links open this app after a Telegram send.
+    MIFS_TELEGRAM_HOST: mifs-telegram.mifs-telegram.workers.dev
 
 targets:
   MIFS:
@@ -41,6 +45,8 @@ targets:
       properties:
         com.apple.security.application-groups:
           - $(MIFS_APP_GROUP)
+        com.apple.developer.associated-domains:
+          - applinks:$(MIFS_TELEGRAM_HOST)
     info:
       path: MIFS/Info.plist
       properties:
@@ -52,10 +58,13 @@ targets:
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         NSLocalNetworkUsageDescription: MIFS plays songs from your MIFS music server on this network.
+        MIFSTelegramBot: $(MIFS_TELEGRAM_BOT)
+        MIFSTelegramHost: $(MIFS_TELEGRAM_HOST)
         ITSAppUsesNonExemptEncryption: false
         CFBundleURLTypes:
           - CFBundleURLName: dev.kuchta.mifs
             CFBundleURLSchemes: [mifs]
+        LSApplicationQueriesSchemes: [tg]
         NSAppleMusicUsageDescription: MIFS reads songs you own in your music library so you can clip and send them.
         UILaunchScreen:
           UIColorName: LaunchBackground

@@ -12,7 +12,11 @@ struct MIFSApp: App {
                 .environment(router)
                 .environment(composer)
                 .onOpenURL { url in
-                    if url.scheme == "mifs", url.host() == "import" { router.showImportOptions() }
+                    if url.scheme == "mifs", url.host() == "import" {
+                        router.showImportOptions()
+                    } else if TelegramLink.isReturnFromSend(url) {
+                        composer.telegramSendFinished()
+                    }
                 }
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active { SnippetStore.shared.reload() }
@@ -63,5 +67,31 @@ struct RootView: View {
             ComposeSheet(request: request)
                 .ignoresSafeArea()
         }
+        .overlay(alignment: .top) {
+            if let confirmation = composer.confirmation {
+                ConfirmationBanner(text: confirmation)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .task {
+                        try? await Task.sleep(for: .seconds(2.5))
+                        composer.confirmation = nil
+                    }
+            }
+        }
+        .animation(.snappy, value: composer.confirmation)
+    }
+}
+
+private struct ConfirmationBanner: View {
+    let text: String
+
+    var body: some View {
+        Label(text, systemImage: "checkmark.circle.fill")
+            .font(.subheadline.weight(.semibold))
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(.regularMaterial, in: .capsule)
+            .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
+            .padding(.top, 8)
+            .accessibilityAddTraits(.isStaticText)
     }
 }
