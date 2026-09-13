@@ -21,6 +21,7 @@ struct WaveformScrubber: View {
             let window = model.length * pps
             let leading = (width - window) / 2
             let trailing = width - leading - window
+            let lane: CGFloat = model.lyrics.isEmpty ? 0 : 10
 
             ScrollView(.horizontal) {
                 HStack(spacing: 0) {
@@ -28,10 +29,15 @@ struct WaveformScrubber: View {
                     LazyHStack(spacing: 0) {
                         ForEach(Array(stride(from: 0, to: bars.count, by: barsPerSegment)), id: \.self) { first in
                             BarSegment(levels: Array(bars[first..<min(first + barsPerSegment, bars.count)]), step: barStep)
-                                .frame(width: CGFloat(min(barsPerSegment, bars.count - first)) * barStep, height: height)
+                                .frame(width: CGFloat(min(barsPerSegment, bars.count - first)) * barStep, height: height - lane)
                         }
                     }
-                    .frame(width: model.duration * pps, alignment: .leading)
+                    .frame(width: model.duration * pps, height: height, alignment: .topLeading)
+                    .overlay(alignment: .bottomLeading) {
+                        if lane > 0 {
+                            LyricLane(lines: model.lyrics, pointsPerSecond: pps).frame(height: lane)
+                        }
+                    }
                     Color.clear.frame(width: max(0, trailing))
                 }
                 .frame(height: height)
@@ -142,6 +148,27 @@ private final class ScrollTracker {
 private struct BarKey: Hashable {
     let pps: CGFloat
     let count: Int
+}
+
+/// Where the vocals are: a dash under the waveform for each lyric line.
+private struct LyricLane: View {
+    let lines: [LyricLine]
+    let pointsPerSecond: CGFloat
+
+    var body: some View {
+        Canvas { context, size in
+            for line in lines {
+                let rect = CGRect(
+                    x: line.start * pointsPerSecond,
+                    y: (size.height - 3) / 2,
+                    width: max(3, (line.end - line.start) * pointsPerSecond - 2),
+                    height: 3
+                )
+                context.fill(Path(roundedRect: rect, cornerRadius: 1.5), with: .color(.white.opacity(0.55)))
+            }
+        }
+        .accessibilityHidden(true)
+    }
 }
 
 private struct BarSegment: View {

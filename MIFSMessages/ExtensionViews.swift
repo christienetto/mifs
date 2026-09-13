@@ -40,6 +40,10 @@ private struct ReceivedSnippetView: View {
                     Text(snippet.track.artist).font(.body).opacity(0.75).lineLimit(1)
                 }
 
+                if let lyrics = snippet.lyrics, !lyrics.isEmpty {
+                    LyricsExcerpt(lines: lyrics, playhead: active ? snippet.start + player.progress * snippet.duration : nil)
+                }
+
                 VStack(spacing: 8) {
                     WaveformBars(levels: snippet.waveform, progress: active ? player.progress : 0, spacing: 3)
                         .frame(height: 44)
@@ -65,7 +69,8 @@ private struct ReceivedSnippetView: View {
                     if let appleMusic = snippet.track.appleMusicURL {
                         ListenButton(title: "Apple Music", symbol: "music.note") { state.open(appleMusic) }
                     }
-                    if let spotify = snippet.track.spotifySearchURL {
+                    // MIFS server songs aren't on streaming services.
+                    if snippet.track.kind != .server, let spotify = snippet.track.spotifySearchURL {
                         ListenButton(title: "Spotify", symbol: "headphones") { state.open(spotify) }
                     }
                 }
@@ -92,6 +97,26 @@ private struct ReceivedSnippetView: View {
     private func play() {
         guard let playback = snippet.playback else { return }
         player.toggle(id: id, url: playback.url, start: playback.start, duration: playback.duration)
+    }
+}
+
+/// The lyrics a snippet contains, lit line by line as it plays.
+private struct LyricsExcerpt: View {
+    let lines: [LyricLine]
+    let playhead: TimeInterval?
+
+    var body: some View {
+        let sung = playhead.flatMap { lines.index(at: $0) }
+        VStack(spacing: 6) {
+            ForEach(lines.indices, id: \.self) { index in
+                Text(lines[index].text)
+                    .font(.headline)
+                    .multilineTextAlignment(.center)
+                    .opacity(sung == nil ? 0.85 : sung == index ? 1 : 0.4)
+            }
+        }
+        .animation(.smooth(duration: 0.25), value: sung)
+        .accessibilityElement(children: .combine)
     }
 }
 

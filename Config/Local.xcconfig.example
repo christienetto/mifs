@@ -1,0 +1,8 @@
+// Copy to Config/Local.xcconfig (git-ignored) to override settings on this machine only.
+
+// A physical iPhone can't reach the Mac as "localhost". Start the server with
+// MIFS_ADDR=:8080 and point the app at the Mac's LAN address (System Settings › Wi-Fi › Details):
+// MIFS_SERVER_URL = http:/$()/192.168.1.20:8080
+
+// Or a deployed server:
+// MIFS_SERVER_URL = https:/$()/mifs.example.com

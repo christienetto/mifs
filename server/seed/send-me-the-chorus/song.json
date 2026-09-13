@@ -1,0 +1,19 @@
+{
+  "id": "send-me-the-chorus",
+  "title": "Send Me the Chorus",
+  "artist": "Orchid Relay",
+  "album": "Night Signals",
+  "trackNumber": 3,
+  "releaseYear": 2026,
+  "genre": "Dance Pop",
+  "explicit": false,
+  "highlightStart": 32.24,
+  "license": {
+    "name": "CC0-1.0",
+    "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+  },
+  "attribution": "Original demo recording made for the MIFS prototype. Vocals synthesised with Piper TTS (en_US-ljspeech-high voice).",
+  "audio": "audio.m4a",
+  "artwork": "artwork.jpg",
+  "lyrics": "lyrics.lrc"
+}

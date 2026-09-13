@@ -16,8 +16,20 @@ struct SnippetEditorView: View {
 
     var body: some View {
         VStack(spacing: 18) {
-            header
+            if model.lyrics.isEmpty {
+                header
+                    .frame(maxHeight: .infinity)
+            } else {
+                compactHeader
+                LyricsPanel(
+                    lines: model.lyrics,
+                    selected: model.selectedLyrics,
+                    playhead: model.playhead,
+                    selectionStart: model.start,
+                    onSelect: model.select
+                )
                 .frame(maxHeight: .infinity)
+            }
             switch model.phase {
             case .loading:
                 loadingTimeline
@@ -64,6 +76,41 @@ struct SnippetEditorView: View {
         }
     }
 
+    /// Makes room for lyrics.
+    private var compactHeader: some View {
+        HStack(spacing: 12) {
+            ArtworkView(url: model.track.resolvedArtworkURL, cornerRadius: 10)
+                .frame(width: 56)
+                .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(model.track.title)
+                    .font(.headline)
+                    .lineLimit(1)
+                Text(model.track.artist)
+                    .font(.subheadline)
+                    .opacity(0.75)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var caption: String {
+        switch model.track.kind {
+        case .catalog: "Drag the waveform to pick the moment · from Apple Music’s preview"
+        case .server where !model.lyrics.isEmpty: "Drag the waveform or tap a lyric to pick the moment"
+        case .server, .file: "Drag the waveform to pick the moment"
+        }
+    }
+
+    private var loadingMessage: String {
+        switch model.track.kind {
+        case .catalog: "Loading preview…"
+        case .server: "Loading song…"
+        case .file: "Reading audio…"
+        }
+    }
+
     private var timeline: some View {
         VStack(spacing: 10) {
             HStack {
@@ -82,9 +129,7 @@ struct SnippetEditorView: View {
             OverviewBar(start: model.start, length: model.length, duration: model.duration)
                 .frame(height: 4)
 
-            Text(model.track.kind == .catalog
-                 ? "Drag the waveform to pick the moment · from Apple Music’s preview"
-                 : "Drag the waveform to pick the moment")
+            Text(caption)
                 .font(.caption)
                 .opacity(0.6)
                 .multilineTextAlignment(.center)
@@ -94,7 +139,7 @@ struct SnippetEditorView: View {
     private var loadingTimeline: some View {
         VStack(spacing: 12) {
             ProgressView().tint(.white)
-            Text(model.track.kind == .catalog ? "Loading preview…" : "Reading audio…")
+            Text(loadingMessage)
                 .font(.footnote)
                 .opacity(0.7)
         }

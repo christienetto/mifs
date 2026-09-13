@@ -48,7 +48,7 @@ struct SnippetsScreen: View {
                     .contextMenu {
                         Button("Send in Messages", systemImage: "arrow.up.message") { send(snippet) }
                         Button("Share…", systemImage: "square.and.arrow.up") { sharing = snippet }
-                        if snippet.track.kind == .catalog {
+                        if snippet.track.kind != .file {
                             Button("Make Another Snippet", systemImage: "scissors") { router.edit(snippet.track) }
                         }
                         Divider()

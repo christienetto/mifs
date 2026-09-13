@@ -66,7 +66,7 @@ final class MessagesViewController: MSMessagesAppViewController {
     private func send(_ snippet: Snippet) async throws {
         guard let conversation = activeConversation else { throw ExtensionError.noConversation }
         switch snippet.track.kind {
-        case .catalog:
+        case .catalog, .server:
             guard let message = await MessageFactory.message(for: snippet) else { throw ExtensionError.unsendable }
             try await conversation.insert(message)
         case .file:

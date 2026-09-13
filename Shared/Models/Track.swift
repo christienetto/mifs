@@ -1,10 +1,13 @@
 import Foundation
 
-/// Something the user can clip: a catalog song (Apple's 30s preview) or audio they own.
+/// Something the user can clip: a catalog song (Apple's 30s preview), a full song from the
+/// MIFS music server, or audio they own.
 nonisolated struct Track: Identifiable, Hashable, Codable, Sendable {
     enum Kind: String, Codable, Sendable {
         case catalog
         case file
+        /// Streamed from the MIFS music server, with synced lyrics.
+        case server
     }
 
     var id: String
@@ -15,11 +18,16 @@ nonisolated struct Track: Identifiable, Hashable, Codable, Sendable {
     var artworkURL: URL?
     /// App-group relative path of locally stored artwork (owned audio).
     var artworkFile: String?
+    /// Streamable audio: Apple's 30 s preview, or the full song on the MIFS server.
     var previewURL: URL?
     var appleMusicURL: URL?
     var isExplicit: Bool = false
     /// Location of owned audio for the current editing session. Not meaningful across launches.
     var sourceURL: URL?
+    /// Small artwork for lists, when the source provides one.
+    var thumbnailURL: URL?
+    /// Suggested snippet start (e.g. the chorus), when the source provides one.
+    var highlightStart: TimeInterval?
 
     var resolvedArtworkURL: URL? {
         if let artworkFile { return AppGroup.url(for: artworkFile) }

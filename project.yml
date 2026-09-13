@@ -8,6 +8,10 @@ options:
   developmentLanguage: en
   xcodeVersion: "26.0"
 
+configFiles:
+  Debug: Config/MIFS.xcconfig
+  Release: Config/MIFS.xcconfig
+
 settings:
   base:
     MARKETING_VERSION: "1.0.0"
@@ -44,6 +48,10 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         MIFSAppGroup: $(MIFS_APP_GROUP)
+        MIFSServerURL: $(MIFS_SERVER_URL)
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        NSLocalNetworkUsageDescription: MIFS plays songs from your MIFS music server on this network.
         ITSAppUsesNonExemptEncryption: false
         CFBundleURLTypes:
           - CFBundleURLName: dev.kuchta.mifs
@@ -83,6 +91,10 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         MIFSAppGroup: $(MIFS_APP_GROUP)
+        MIFSServerURL: $(MIFS_SERVER_URL)
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        NSLocalNetworkUsageDescription: MIFS plays songs from your MIFS music server on this network.
         NSExtension:
           NSExtensionPointIdentifier: com.apple.message-payload-provider
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).MessagesViewController

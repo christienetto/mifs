@@ -5,9 +5,20 @@ import XCTest
 /// (TEST_RUNNER_MIFS_MESSAGES_UI=1) and expects a freshly installed build.
 final class MessagesExtensionUITests: XCTestCase {
     private var directory: String? { ProcessInfo.processInfo.environment["MIFS_SCREENSHOT_DIR"] }
+    private var screenshotPrefix = ""
 
     func testOpenMIFSInMessages() throws {
+        try sendSnippetAndOpenBubble(search: "Blinding Lights Weeknd", title: "Blinding Lights", prefix: "")
+    }
+
+    /// A MIFS server song (needs `make -C server run`): the bubble opens its player with lyrics.
+    func testSendServerSongInMessages() throws {
+        try sendSnippetAndOpenBubble(search: "Neon Harbor", title: "Neon Harbor", prefix: "server-")
+    }
+
+    private func sendSnippetAndOpenBubble(search term: String, title: String, prefix: String) throws {
         try XCTSkipIf(ProcessInfo.processInfo.environment["MIFS_MESSAGES_UI"] == nil, "Set MIFS_MESSAGES_UI to run")
+        screenshotPrefix = prefix
         let messages = XCUIApplication(bundleIdentifier: "com.apple.MobileSMS")
         messages.launch()
         sleep(3)
@@ -36,11 +47,11 @@ final class MessagesExtensionUITests: XCTestCase {
         XCTAssertTrue(search.waitForExistence(timeout: 10))
         search.tap()
         sleep(2)
-        search.typeText("Blinding Lights Weeknd")
+        search.typeText(term)
         sleep(4)
         dump(messages, "ext-search")
 
-        let result = messages.buttons.containing(NSPredicate(format: "label CONTAINS[c] 'Blinding Lights'")).firstMatch
+        let result = messages.buttons.containing(NSPredicate(format: "label CONTAINS[c] %@", title)).firstMatch
         XCTAssertTrue(result.waitForExistence(timeout: 15))
         result.tap()
 
@@ -64,7 +75,7 @@ final class MessagesExtensionUITests: XCTestCase {
         sleep(8)
         dump(messages, "bubble-reopened")
 
-        let bubble = messages.otherElements.matching(NSPredicate(format: "label CONTAINS[c] 'Blinding Lights' OR label CONTAINS[c] 'snippet'")).firstMatch
+        let bubble = messages.otherElements.matching(NSPredicate(format: "label CONTAINS[c] %@ OR label CONTAINS[c] 'snippet'", title)).firstMatch
         if bubble.exists { bubble.tap() } else { messages.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.3)).tap() }
         XCTAssertTrue(messages.buttons["Reply with a Snippet"].waitForExistence(timeout: 10), "Tapping the bubble should open the MIFS player")
         sleep(3)
@@ -72,6 +83,7 @@ final class MessagesExtensionUITests: XCTestCase {
     }
 
     private func dump(_ app: XCUIApplication, _ name: String) {
+        let name = screenshotPrefix + name
         let shot = app.screenshot()
         let attachment = XCTAttachment(screenshot: shot)
         attachment.name = name

@@ -22,6 +22,13 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>MIFSAppGroup</key>
 	<string>$(MIFS_APP_GROUP)</string>
+	<key>MIFSServerURL</key>
+	<string>$(MIFS_SERVER_URL)</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>NSExtension</key>
 	<dict>
 		<key>NSExtensionPointIdentifier</key>
@@ -29,5 +36,7 @@
 		<key>NSExtensionPrincipalClass</key>
 		<string>$(PRODUCT_MODULE_NAME).MessagesViewController</string>
 	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>MIFS plays songs from your MIFS music server on this network.</string>
 </dict>
 </plist>

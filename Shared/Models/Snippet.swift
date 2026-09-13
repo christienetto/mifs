@@ -13,13 +13,15 @@ nonisolated struct Snippet: Identifiable, Hashable, Codable, Sendable {
     var createdAt: Date = .now
     /// App-group relative path of the exported clip (owned audio only).
     var clipFile: String?
+    /// Lyric lines heard in the snippet, in song time (MIFS server songs).
+    var lyrics: [LyricLine]?
 
     var end: TimeInterval { start + duration }
 
     /// Where playback reads from and the range inside that file.
     var playback: (url: URL, start: TimeInterval, duration: TimeInterval)? {
         switch track.kind {
-        case .catalog:
+        case .catalog, .server:
             guard let url = track.previewURL else { return nil }
             return (url, start, duration)
         case .file:

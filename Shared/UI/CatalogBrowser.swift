@@ -12,14 +12,44 @@ final class CatalogModel {
     private(set) var searchError: String?
     private(set) var chartsError: String?
 
-    private let catalog: CatalogService
-    private var searchTask: Task<Void, Never>?
+    /// Songs on the MIFS music server, and the ones matching the current query.
+    private(set) var library: [Track] = []
+    private(set) var libraryResults: [Track] = []
+    private(set) var hasLoadedLibrary = false
+    private(set) var libraryError: String?
 
-    init(catalog: CatalogService = .shared) {
+    private let catalog: CatalogService
+    let server: MusicServer
+    private var searchTask: Task<Void, Never>?
+    private var isLoadingLibrary = false
+
+    init(catalog: CatalogService = .shared, server: MusicServer = .shared) {
         self.catalog = catalog
+        self.server = server
     }
 
     var trimmedQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    func loadLibraryIfNeeded() async {
+        guard server.isConfigured, library.isEmpty, !isLoadingLibrary else { return }
+        isLoadingLibrary = true
+        defer {
+            isLoadingLibrary = false
+            hasLoadedLibrary = true
+        }
+        do {
+            library = try await server.songs()
+            libraryError = nil
+        } catch {
+            libraryError = error.localizedDescription
+        }
+    }
+
+    func retryLibrary() async {
+        hasLoadedLibrary = false
+        libraryError = nil
+        await loadLibraryIfNeeded()
+    }
 
     func loadChartsIfNeeded() async {
         guard topSongs.isEmpty, !isLoadingCharts else { return }
@@ -43,6 +73,7 @@ final class CatalogModel {
         let term = trimmedQuery
         guard !term.isEmpty else {
             results = []
+            libraryResults = []
             isSearching = false
             searchError = nil
             return
@@ -51,24 +82,39 @@ final class CatalogModel {
         searchTask = Task {
             try? await Task.sleep(for: .milliseconds(350))
             guard !Task.isCancelled else { return }
-            do {
-                let found = try await catalog.search(term)
-                guard !Task.isCancelled else { return }
-                results = found
-                searchError = nil
-            } catch is CancellationError {
-                return
-            } catch let error as URLError where error.code == .cancelled {
-                return
-            } catch {
-                searchError = error.localizedDescription
+            await withDiscardingTaskGroup { group in
+                group.addTask { await self.searchLibrary(term) }
+                group.addTask { await self.searchCatalog(term) }
             }
-            isSearching = false
         }
+    }
+
+    private func searchCatalog(_ term: String) async {
+        do {
+            let found = try await catalog.search(term)
+            guard !Task.isCancelled else { return }
+            results = found
+            searchError = nil
+        } catch is CancellationError {
+            return
+        } catch let error as URLError where error.code == .cancelled {
+            return
+        } catch {
+            searchError = error.localizedDescription
+        }
+        isSearching = false
+    }
+
+    /// Best effort: an unreachable server just contributes no results while searching.
+    private func searchLibrary(_ term: String) async {
+        guard server.isConfigured else { return }
+        let found = (try? await server.songs(matching: term)) ?? []
+        if !Task.isCancelled { libraryResults = found }
     }
 }
 
-/// Search results when there's a query, otherwise `header` followed by Apple Music's top songs.
+/// Search results when there's a query, otherwise `header`, the MIFS server's songs and
+/// Apple Music's top songs.
 struct CatalogBrowser<Header: View>: View {
     @Bindable var model: CatalogModel
     let onSelect: (Track) -> Void
@@ -78,14 +124,53 @@ struct CatalogBrowser<Header: View>: View {
         List {
             if model.trimmedQuery.isEmpty {
                 header
+                librarySection
                 chartSection
             } else {
+                if !model.libraryResults.isEmpty {
+                    Section("MIFS Library") { rows(model.libraryResults) }
+                }
                 searchSection
             }
         }
         .listStyle(.insetGrouped)
         .scrollDismissesKeyboard(.immediately)
         .task { await model.loadChartsIfNeeded() }
+        .task { await model.loadLibraryIfNeeded() }
+    }
+
+    private func rows(_ tracks: [Track]) -> some View {
+        ForEach(tracks) { track in
+            Button { onSelect(track) } label: { TrackRow(track: track) }
+                .tint(.primary)
+        }
+    }
+
+    @ViewBuilder
+    private var librarySection: some View {
+        if model.server.isConfigured {
+            Section {
+                if model.library.isEmpty {
+                    if let error = model.libraryError {
+                        MessageRow(symbol: "server.rack", text: error, actionTitle: "Retry") {
+                            Task { await model.retryLibrary() }
+                        }
+                    } else if !model.hasLoadedLibrary {
+                        ForEach(0..<3, id: \.self) { _ in PlaceholderRow() }
+                    } else {
+                        MessageRow(symbol: "music.note.list", text: "No songs on your MIFS server yet.")
+                    }
+                } else {
+                    rows(model.library)
+                }
+            } header: {
+                Text("MIFS Library")
+            } footer: {
+                if !model.library.isEmpty {
+                    Text("Full songs with synced lyrics, from your MIFS server.")
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -122,11 +207,10 @@ struct CatalogBrowser<Header: View>: View {
                     MessageRow(symbol: "magnifyingglass", text: "No songs found for “\(model.trimmedQuery)”.")
                 }
             } else {
-                ForEach(model.results) { track in
-                    Button { onSelect(track) } label: { TrackRow(track: track) }
-                        .tint(.primary)
-                }
+                rows(model.results)
             }
+        } header: {
+            Text("Apple Music")
         }
     }
 }

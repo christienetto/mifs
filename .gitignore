@@ -4,3 +4,11 @@ DerivedData/
 *.xcuserstate
 xcuserdata/
 *.xcscmblueprint
+
+# Machine-specific build settings (see Config/Local.xcconfig.example).
+Config/Local.xcconfig
+
+# Local secrets and environment files.
+.env
+.env.*
+.dev.vars

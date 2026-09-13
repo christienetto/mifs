@@ -1,0 +1,19 @@
+{
+  "id": "neon-harbor",
+  "title": "Neon Harbor",
+  "artist": "Orchid Relay",
+  "album": "Night Signals",
+  "trackNumber": 1,
+  "releaseYear": 2026,
+  "genre": "Synthwave",
+  "explicit": false,
+  "highlightStart": 38.1,
+  "license": {
+    "name": "CC0-1.0",
+    "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+  },
+  "attribution": "Original demo recording made for the MIFS prototype. Vocals synthesised with Piper TTS (en_US-ljspeech-high voice).",
+  "audio": "audio.m4a",
+  "artwork": "artwork.jpg",
+  "lyrics": "lyrics.lrc"
+}

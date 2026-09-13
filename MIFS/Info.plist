@@ -35,8 +35,17 @@
 	<false/>
 	<key>MIFSAppGroup</key>
 	<string>$(MIFS_APP_GROUP)</string>
+	<key>MIFSServerURL</key>
+	<string>$(MIFS_SERVER_URL)</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>NSAppleMusicUsageDescription</key>
 	<string>MIFS reads songs you own in your music library so you can clip and send them.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>MIFS plays songs from your MIFS music server on this network.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

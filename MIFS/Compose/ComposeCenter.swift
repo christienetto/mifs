@@ -16,7 +16,7 @@ final class ComposeCenter {
 
     func send(_ snippet: Snippet) async {
         SnippetPlayer.shared.stop()
-        let message = snippet.track.kind == .catalog ? await MessageFactory.message(for: snippet) : nil
+        let message = snippet.track.kind == .file ? nil : await MessageFactory.message(for: snippet)
         request = Request(snippet: snippet, message: message, usesMessages: MFMessageComposeViewController.canSendText())
     }
 }
@@ -68,7 +68,7 @@ private struct MessageComposeView: UIViewControllerRepresentable {
 }
 
 enum ShareItems {
-    /// A clip file with a friendly name, or the Apple Music link for catalog snippets.
+    /// A clip file with a friendly name, or a link to the song (Apple Music, or the MIFS server's audio).
     static func items(for snippet: Snippet) -> [Any] {
         if let clip = snippet.clipURL {
             let named = URL.temporaryDirectory.appending(path: snippet.attachmentName)
@@ -76,7 +76,12 @@ enum ShareItems {
             if (try? FileManager.default.copyItem(at: clip, to: named)) != nil { return [named] }
             return [clip]
         }
-        var items: [Any] = ["🎵 \(snippet.track.title) – \(snippet.track.artist)"]
+        let caption = "🎵 \(snippet.track.title) – \(snippet.track.artist)"
+        // A bare media URL would be previewed as a file named by its content hash.
+        if snippet.track.kind == .server, let audio = snippet.track.previewURL {
+            return ["\(caption)\n\(audio.absoluteString)"]
+        }
+        var items: [Any] = [caption]
         if let link = snippet.track.appleMusicURL { items.append(link) }
         return items
     }

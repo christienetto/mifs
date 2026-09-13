@@ -1,0 +1,17 @@
+{
+  "id": "paper-satellites",
+  "title": "Paper Satellites",
+  "artist": "Juniper Fold",
+  "releaseYear": 2026,
+  "genre": "Lo-fi Hip Hop",
+  "explicit": false,
+  "highlightStart": 45.41,
+  "license": {
+    "name": "CC0-1.0",
+    "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+  },
+  "attribution": "Original demo recording made for the MIFS prototype. Vocals synthesised with Piper TTS (en_US-ljspeech-high voice).",
+  "audio": "audio.m4a",
+  "artwork": "artwork.jpg",
+  "lyrics": "lyrics.lrc"
+}

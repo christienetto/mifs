@@ -14,7 +14,7 @@ struct TrackRow: View {
                     .foregroundStyle(.secondary)
                     .frame(minWidth: 22)
             }
-            ArtworkView(url: Track.artwork(track.artworkURL, size: 200), cornerRadius: 8)
+            ArtworkView(url: track.thumbnailURL ?? Track.artwork(track.artworkURL, size: 200), cornerRadius: 8)
                 .frame(width: 52)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
@@ -33,7 +33,7 @@ struct TrackRow: View {
                 let id = "row-\(track.id)"
                 Button {
                     Haptics.tap()
-                    player.toggle(id: id, url: preview, start: 0, duration: 30)
+                    player.toggle(id: id, url: preview, start: track.highlightStart ?? 0, duration: 30)
                 } label: {
                     Image(systemName: player.isActive(id) ? "stop.circle.fill" : "play.circle")
                         .font(.title2)
