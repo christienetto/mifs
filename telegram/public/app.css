@@ -449,3 +449,9 @@ button:focus-visible, [tabindex]:focus-visible { outline: 2px solid currentColor
 
 body.has-fallback-button .screen,
 body.has-fallback-button .browser { padding-bottom: calc(80px + var(--safe-bottom)); }
+
+.mif-lyrics { overflow-y: auto; max-height: 42vh; text-align: center; font-size: 1.2rem; font-weight: 600; }
+.mif-lyrics p { opacity: .5; transition: opacity .2s; }
+.mif-lyrics p.sung { opacity: 1; }
+.editor-lyrics button { display: block; width: 100%; background: none; border: 0; color: white; padding: 8px; font: inherit; }
+.loading progress { width: 100%; accent-color: white; height: 8px; }

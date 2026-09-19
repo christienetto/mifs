@@ -6,3 +6,5 @@
 
 // Or a deployed server:
 // MIFS_SERVER_URL = https:/$()/mifs.example.com
+
+// MIFS_LINK_HOST = mifs.example.com

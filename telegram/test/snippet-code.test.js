@@ -72,3 +72,9 @@ test('contrast maps loudness into 0.1…1', () => {
   assert.ok(levels.every((level, index) => level >= 0.1 && (index === 0 || level >= levels[index - 1])));
   assert.equal(RESOLUTION, 10);
 });
+
+test('server mif codes match iOS and retain only immutable mif identity', () => {
+  assert.deepEqual(parseCode('s2_abcdefghijkl'), { intent: 'send', mifId: 'abcdefghijkl' });
+  assert.equal(formatCode({ intent: 'play', mifId: 'abcdefghijkl' }), 'p2_abcdefghijkl');
+  for (const bad of ['s2_https://evil.test', 'p2_../etc/passwd', 's2_abcdefghijkl_extra']) assert.equal(parseCode(bad), null);
+});

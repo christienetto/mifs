@@ -5,6 +5,7 @@
 //   /app/…             links back into the MIFS iOS app (universal links; a fallback page elsewhere)
 // It keeps no state: a snippet is fully described by its code, and song details come from Apple's catalog.
 
+import { loadMif, mifAudio, musicRequest } from './mifs.js';
 import { lookupTrack } from '../public/catalog.js';
 import { parseCode } from '../public/snippet-code.js';
 import { callBot, handleUpdate } from './bot.js';
@@ -15,6 +16,14 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     try {
+      if (/^\/api\/(search|songs(?:\/[a-zA-Z0-9_-]{1,100}(?:\/(?:lyrics|waveform|mifs|audio))?)?)$/.test(url.pathname)) {
+        return await musicRequest(request, env);
+      }
+      const mif = /^\/api\/mifs\/([a-z2-7]{12})(\/audio)?$/.exec(url.pathname);
+      if (mif && ['GET', 'HEAD'].includes(request.method)) {
+        if (mif[2]) return await mifAudio(request, env, mif[1]);
+        return json(await loadMif(env, mif[1]));
+      }
       if (url.pathname === '/api/share' && request.method === 'POST') return await share(request, env);
       if (url.pathname === '/telegram' && request.method === 'POST') return await webhook(request, env, url.origin);
       if (url.pathname === '/.well-known/apple-app-site-association') return appSiteAssociation(env);
@@ -34,13 +43,20 @@ export async function share(request, env, fetchImpl = fetch) {
   const auth = await verifyInitData(body?.initData, env.BOT_TOKEN);
   if (!auth?.user?.id) return json({ error: 'Open MIFS from Telegram to send snippets.' }, 401);
 
-  const snippet = parseCode(body.code);
+  let snippet = parseCode(body.code);
   if (!snippet) return json({ error: 'This snippet can’t be sent.' }, 400);
 
-  // Prefer Apple's own catalog data; fall back to what the Mini App already looked up.
-  const track = await lookupTrack(snippet.trackId, snippet.storefront, cachedFetch(fetchImpl)).catch(() => null)
-    ?? sanitizeTrack(body.track, snippet.trackId);
-  if (!track) return json({ error: 'Couldn’t reach Apple Music. Try again in a moment.' }, 502);
+  let track;
+  if (snippet.mifId) {
+    try {
+      const resolved = await loadMif(env, snippet.mifId, cachedFetch(fetchImpl));
+      snippet = { ...resolved.snippet, intent: snippet.intent }; track = resolved.track;
+    } catch { return json({ error: 'Couldn’t load this mif from the music server. Try again.' }, 502); }
+  } else {
+    track = await lookupTrack(snippet.trackId, snippet.storefront, cachedFetch(fetchImpl)).catch(() => null)
+      ?? sanitizeTrack(body.track, snippet.trackId);
+  }
+  if (!track) return json({ error: 'Couldn’t load this song. Try again.' }, 502);
 
   const prepared = await callBot(env, 'savePreparedInlineMessage', {
     user_id: auth.user.id,

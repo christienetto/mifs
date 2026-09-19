@@ -105,3 +105,54 @@ struct PlayButton: View {
         .accessibilityLabel(state == .idle ? "Play" : "Stop")
     }
 }
+
+/// Shared player for Recent and incoming links. Artwork yields to lyrics during playback.
+struct SnippetPlaybackView: View {
+    let snippet: Snippet
+    var showLyricsInitially = false
+    @State private var player = SnippetPlayer.shared
+    @State private var lines: [LyricLine] = []
+    private var id: String { snippet.id.uuidString }
+    var body: some View {
+        let active = player.isActive(id)
+        VStack(spacing: 20) {
+            Text(snippet.track.title).font(.title2.bold()).multilineTextAlignment(.center)
+            Text(snippet.track.artist).foregroundStyle(.secondary)
+            if (player.isPlaying(id) || showLyricsInitially), !lines.isEmpty {
+                LyricsPanel(lines: lines, selected: lines,
+                    playhead: active ? snippet.start + player.progress * snippet.duration : nil,
+                    selectionStart: snippet.start, onSelect: { _ in })
+            } else {
+                ArtworkView(url: snippet.track.resolvedArtworkURL, cornerRadius: 20)
+                    .frame(maxWidth: 300, maxHeight: 300)
+                if active || showLyricsInitially { Text("Lyrics aren't available for this moment.").font(.callout) }
+            }
+            Spacer(minLength: 0)
+            PlayButton(state: active ? player.state : .idle, progress: active ? player.progress : 0, size: 64) {
+                guard let playback = snippet.playback else { return }
+                player.toggle(id: id, url: playback.url, start: playback.start, duration: playback.duration)
+            }
+            if let error = player.lastError { Text(error).font(.caption) }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background { ArtworkBackdrop(url: snippet.track.resolvedArtworkURL) }
+        .foregroundStyle(.white)
+        .environment(\.colorScheme, .dark)
+        .task(id: snippet.id) {
+            if let playback = snippet.playback {
+                player.play(id: id, url: playback.url, start: playback.start, duration: playback.duration)
+            }
+            lines = snippet.lyrics ?? []
+            if snippet.track.kind == .server {
+                if let shareURL = snippet.shareURL,
+                   let resolved = try? await MusicServer.shared.received(shareURL) {
+                    lines = resolved.lyrics ?? lines
+                } else if let full = try? await MusicServer.shared.lyrics(for: snippet.track.id) {
+                    lines = full.heard(from: snippet.start, to: snippet.end)
+                }
+            }
+        }
+        .onDisappear { if player.isActive(id) { player.stop() } }
+    }
+}

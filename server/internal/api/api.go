@@ -1,17 +1,23 @@
 // Package api serves the MIFS catalog over HTTP.
 //
-//	GET /healthz
-//	GET /v1/songs?q=&limit=&cursor=     list or search songs
-//	GET /v1/songs/{id}                  one song
-//	GET /v1/songs/{id}/lyrics           synced lyrics
-//	GET /v1/songs/{id}/waveform         loudness envelope for the timeline
-//	GET /media/{key}                    audio and artwork (range requests, immutable)
+//	GET  /healthz
+//	GET  /v1/search?q=&limit=            MIFS songs and provider tracks, with availability
+//	GET  /v1/songs?q=&limit=&cursor=     list or search ready songs
+//	POST /v1/songs                       {"ref"}: add a provider track to MIFS (idempotent)
+//	GET  /v1/songs/{id}                  one song, with its ingestion status
+//	GET  /v1/songs/{id}/lyrics           synced lyrics
+//	GET  /v1/songs/{id}/waveform         loudness envelope for the timeline
+//	POST /v1/songs/{id}/mifs             {"startMs","durationMs"}: make a mif (idempotent)
+//	GET  /v1/mifs/{id}                   a mif
+//	GET  /m/{id}                         a mif's share page: plays in any browser
+//	GET  /media/{key}                    audio, clips and artwork (range requests, immutable)
 //
 // Media is referenced by absolute URLs in responses, so it can move to a CDN (MediaURL)
 // without client changes.
 package api
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -27,6 +33,8 @@ import (
 
 	"github.com/christienetto/mifs/server/internal/blob"
 	"github.com/christienetto/mifs/server/internal/catalog"
+	"github.com/christienetto/mifs/server/internal/clip"
+	"github.com/christienetto/mifs/server/internal/discovery"
 )
 
 // Config configures the handler.
@@ -37,11 +45,22 @@ type Config struct {
 	// PublicURL is the externally visible origin (e.g. https://api.example.com), used to build
 	// media URLs. When empty it's derived from each request, which suits local development
 	// from a simulator (localhost) and a phone (the Mac's LAN address) alike.
+	IOSAppID  string // Apple team ID + bundle ID, for Universal Links
 	PublicURL string
 	// MediaURL is where media keys are published (e.g. https://cdn.example.com/media).
 	// Defaults to PublicURL + "/media".
 	MediaURL string
 	Logger   *slog.Logger
+
+	// Discovery providers searched by /v1/search and resolved by POST /v1/songs, in
+	// Search uses Spotify only; the other providers remain usable for legacy identities.
+	Discovery []discovery.Provider
+	// SearchTimeout bounds how long search waits for providers. Default 4 s.
+	SearchTimeout time.Duration
+	// Clips renders mif audio. Nil disables making mifs.
+	Clips *clip.Renderer
+	// Notify is called when a song is queued for ingestion, e.g. Worker.Notify.
+	Notify func()
 }
 
 const (
@@ -70,10 +89,17 @@ func New(config Config) (http.Handler, error) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
+	mux.HandleFunc("GET /.well-known/apple-app-site-association", s.appleAssociation)
+	mux.HandleFunc("GET /v1/search", s.search)
 	mux.HandleFunc("GET /v1/songs", s.listSongs)
+	mux.HandleFunc("POST /v1/songs", s.addSong)
 	mux.HandleFunc("GET /v1/songs/{id}", s.getSong)
 	mux.HandleFunc("GET /v1/songs/{id}/lyrics", s.getLyrics)
 	mux.HandleFunc("GET /v1/songs/{id}/waveform", s.getWaveform)
+	mux.HandleFunc("POST /v1/songs/{id}/mifs", s.createMif)
+	mux.HandleFunc("GET /v1/mifs/{id}", s.getMif)
+	mux.HandleFunc("GET /v1/mifs/{id}/audio", s.playMif)
+	mux.HandleFunc("GET /m/{id}", s.mifPage)
 	mux.HandleFunc("GET /media/{key...}", s.getMedia)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "no such endpoint")
@@ -84,7 +110,12 @@ func New(config Config) (http.Handler, error) {
 // JSON shapes.
 
 type songJSON struct {
-	ID               string       `json:"id"`
+	DownloadedBytes    int64  `json:"downloadedBytes"`
+	DownloadTotalBytes int64  `json:"downloadTotalBytes"`
+	ID                 string `json:"id"`
+	// Status is the song's ingestion status (catalog.Status). Only "ready" songs have audio.
+	Status           string       `json:"status"`
+	ISRC             string       `json:"isrc,omitempty"`
 	Title            string       `json:"title"`
 	Artist           string       `json:"artist"`
 	Album            string       `json:"album,omitempty"`
@@ -94,10 +125,17 @@ type songJSON struct {
 	Explicit         bool         `json:"explicit"`
 	DurationMs       int64        `json:"durationMs"`
 	HighlightStartMs *int64       `json:"highlightStartMs,omitempty"`
-	Audio            audioJSON    `json:"audio"`
+	Audio            *audioJSON   `json:"audio,omitempty"`
 	Artwork          *artworkJSON `json:"artwork,omitempty"`
 	HasLyrics        bool         `json:"hasLyrics"`
 	License          *licenseJSON `json:"license,omitempty"`
+	// Links are the song's pages on providers, for "listen on …". Single-song responses only.
+	Links []linkJSON `json:"links,omitempty"`
+}
+
+type linkJSON struct {
+	Provider string `json:"provider"`
+	URL      string `json:"url"`
 }
 
 type audioJSON struct {
@@ -138,7 +176,10 @@ type waveformJSON struct {
 
 func (s *server) songJSON(r *http.Request, song catalog.Song) songJSON {
 	out := songJSON{
+		DownloadedBytes: song.DownloadedBytes, DownloadTotalBytes: song.DownloadTotalBytes,
 		ID:          song.ID,
+		Status:      string(song.Status),
+		ISRC:        song.ISRC,
 		Title:       song.Title,
 		Artist:      song.Artist,
 		Album:       song.Album,
@@ -147,24 +188,41 @@ func (s *server) songJSON(r *http.Request, song catalog.Song) songJSON {
 		Genre:       song.Genre,
 		Explicit:    song.Explicit,
 		DurationMs:  song.DurationMs,
-		Audio: audioJSON{
+		HasLyrics:   song.HasLyrics,
+	}
+	if song.Ready() {
+		out.Audio = &audioJSON{
 			URL:         s.mediaURL(r, song.AudioKey),
 			ContentType: song.AudioContentType,
 			Bitrate:     song.AudioBitrate,
 			Size:        song.AudioBytes,
-		},
-		HasLyrics: song.HasLyrics,
+		}
 	}
 	if song.HighlightStartMs >= 0 {
 		out.HighlightStartMs = &song.HighlightStartMs
 	}
 	if song.ArtworkKey != "" {
 		out.Artwork = &artworkJSON{URL: s.mediaURL(r, song.ArtworkKey), ThumbnailURL: s.mediaURL(r, song.ThumbnailKey)}
+	} else if song.ArtworkURL != "" {
+		// Not ingested yet: show the provider's artwork meanwhile.
+		out.Artwork = &artworkJSON{URL: song.ArtworkURL, ThumbnailURL: song.ArtworkURL}
 	}
 	if song.LicenseName != "" {
 		out.License = &licenseJSON{Name: song.LicenseName, URL: song.LicenseURL, Attribution: song.Attribution}
 	}
 	return out
+}
+
+// songDetailJSON is songJSON plus the song's provider links.
+func (s *server) songDetailJSON(r *http.Request, song catalog.Song) (songJSON, error) {
+	out := s.songJSON(r, song)
+	links, err := s.Store.Links(r.Context(), song.ID)
+	for _, link := range links {
+		if link.URL != "" {
+			out.Links = append(out.Links, linkJSON{Provider: link.Provider, URL: link.URL})
+		}
+	}
+	return out, err
 }
 
 func (s *server) origin(r *http.Request) string {
@@ -242,7 +300,16 @@ func (s *server) getSong(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	writeJSON(w, r, s.songJSON(r, song))
+	out, err := s.songDetailJSON(r, song)
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	if !song.Ready() {
+		// Clients poll while a song is ingested; don't let a cache answer for the server.
+		w.Header().Set("Cache-Control", "no-store")
+	}
+	writeJSON(w, r, out)
 }
 
 func (s *server) getLyrics(w http.ResponseWriter, r *http.Request) {
@@ -262,6 +329,10 @@ func (s *server) getLyrics(w http.ResponseWriter, r *http.Request) {
 func (s *server) getWaveform(w http.ResponseWriter, r *http.Request) {
 	song, ok := s.lookup(w, r)
 	if !ok {
+		return
+	}
+	if !song.Ready() {
+		writeError(w, http.StatusConflict, "not_ready", "this song is still being added to MIFS")
 		return
 	}
 	waveform, err := s.Store.Waveform(r.Context(), song.ID)
@@ -345,6 +416,48 @@ func writeJSON(w http.ResponseWriter, r *http.Request, value any) {
 	w.Write(body)
 }
 
+// writeJSONStatus sends a response that mustn't be cached, e.g. to a POST.
+func writeJSONStatus(w http.ResponseWriter, status int, value any) {
+	body, err := json.Marshal(value)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", "couldn't encode response")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(status)
+	w.Write(body)
+}
+
+// decodeBody reads a small JSON request body into v, rejecting unknown fields so typos
+// fail loudly. It writes the error response itself.
+func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
+	// Requiring JSON makes browsers send a CORS preflight, which this server doesn't grant,
+	// so other websites can't make visitors' browsers trigger ingestion or clip rendering.
+	if mediaType, _, _ := strings.Cut(r.Header.Get("Content-Type"), ";"); strings.TrimSpace(mediaType) != "application/json" {
+		writeError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "send the body as application/json")
+		return false
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(v); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_body", "request body must be JSON: "+err.Error())
+		return false
+	}
+	return true
+}
+
+func (s *server) notify() {
+	if s.Notify != nil {
+		s.Notify()
+	}
+}
+
+// detach returns a context for work that should finish even if the client goes away.
+func detach(r *http.Request, timeout time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(r.Context()), timeout)
+}
+
 func writeError(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
@@ -389,7 +502,8 @@ func (w *statusRecorder) WriteHeader(status int) {
 func (s *server) logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		// The catalog is public and read-only, so any web client may read it.
+		// The catalog is public, so any web client may read it. Writes need a JSON body,
+		// which a cross-origin page can't send without a preflight (see decodeBody).
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
@@ -401,4 +515,14 @@ func (s *server) logRequests(next http.Handler) http.Handler {
 		}
 		s.Logger.Info("request", attrs...)
 	})
+}
+
+func (s *server) appleAssociation(w http.ResponseWriter, r *http.Request) {
+	if s.IOSAppID == "" {
+		writeError(w, 404, "not_configured", "Universal Links are not configured")
+		return
+	}
+	writeJSON(w, r, map[string]any{"applinks": map[string]any{
+		"apps": []string{}, "details": []any{map[string]any{"appID": s.IOSAppID, "paths": []string{"/m/*"}}},
+	}})
 }

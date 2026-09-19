@@ -2,9 +2,10 @@ import Foundation
 
 /// Encodes a streamable (catalog or MIFS server) snippet into the URL an `MSMessage` carries.
 ///
-/// The base is the song's music.apple.com page — or, for MIFS server songs, the song's audio —
-/// so devices without MIFS (e.g. a Mac) can still open the song. MIFS parameters ride along
-/// as `mifs_*` query items.
+/// The base is the song's music.apple.com page — or, for MIFS server songs, the mif's share
+/// page (older snippets: the song's audio) — so devices without MIFS (e.g. a Mac) can still
+/// play it. MIFS parameters ride along as `mifs_*` query items, so the base can change without
+/// breaking older versions of the app.
 nonisolated enum SnippetLink {
     private enum Key {
         static let version = "mifs"
@@ -31,7 +32,7 @@ nonisolated enum SnippetLink {
         var components: URLComponents
         var items: [URLQueryItem]
         if track.kind == .server {
-            components = URLComponents(url: preview, resolvingAgainstBaseURL: false)!
+            components = URLComponents(url: snippet.shareURL ?? preview, resolvingAgainstBaseURL: false)!
             items = [URLQueryItem(name: Key.kind, value: track.kind.rawValue)]
         } else {
             components = track.appleMusicURL.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
@@ -93,12 +94,19 @@ nonisolated enum SnippetLink {
             isExplicit: values[Key.explicit] == "1"
         )
         let lyrics = decodeLyrics(values[Key.lyrics] ?? "")
+        var shareURL: URL?
+        if kind == .server, components.path.hasPrefix("/m/") {
+            var page = components
+            page.queryItems = nil
+            shareURL = page.url
+        }
         return Snippet(
             track: track,
             start: TimeInterval(startMs) / 1000,
             duration: TimeInterval(durationMs) / 1000,
             waveform: decode(values[Key.waveform] ?? ""),
-            lyrics: lyrics.isEmpty ? nil : lyrics
+            lyrics: lyrics.isEmpty ? nil : lyrics,
+            shareURL: shareURL
         )
     }
 

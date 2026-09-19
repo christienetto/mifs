@@ -14,11 +14,14 @@ import (
 
 	"github.com/christienetto/mifs/server/internal/blob"
 	"github.com/christienetto/mifs/server/internal/catalog"
+	"github.com/christienetto/mifs/server/internal/clip"
 )
 
 type fixture struct {
 	server   *httptest.Server
 	audioKey string
+	store    *catalog.Store
+	blobs    *blob.Store
 }
 
 func newFixture(t *testing.T, config Config) fixture {
@@ -63,6 +66,9 @@ func newFixture(t *testing.T, config Config) fixture {
 
 	config.Store = store
 	config.MediaDir = blobs.Dir()
+	if config.Clips == nil {
+		config.Clips = &clip.Renderer{Blobs: blobs, FFmpeg: "ffmpeg"}
+	}
 	config.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	handler, err := New(config)
 	if err != nil {
@@ -70,7 +76,7 @@ func newFixture(t *testing.T, config Config) fixture {
 	}
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
-	return fixture{server: server, audioKey: audioKey}
+	return fixture{server: server, audioKey: audioKey, store: store, blobs: blobs}
 }
 
 func get(t *testing.T, url string, header map[string]string) *http.Response {

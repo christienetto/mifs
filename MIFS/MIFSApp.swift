@@ -16,6 +16,13 @@ struct MIFSApp: App {
                         router.showImportOptions()
                     } else if TelegramLink.isReturnFromSend(url) {
                         composer.telegramSendFinished()
+                    } else if let snippet = SnippetLink.snippet(from: url) {
+                        router.receivedSnippet = snippet
+                    } else if url.path.hasPrefix("/m/") {
+                        Task {
+                            do { router.receivedSnippet = try await MusicServer.shared.received(url) }
+                            catch { router.linkError = error.localizedDescription }
+                        }
                     }
                 }
                 .onChange(of: scenePhase) { _, phase in
@@ -35,6 +42,8 @@ final class AppRouter {
     var tab: Tab = .discover
     var discoverPath: [Track] = []
     var isShowingImportOptions = false
+    var receivedSnippet: Snippet?
+    var linkError: String?
 
     func showImportOptions() {
         tab = .discover
@@ -59,10 +68,17 @@ struct RootView: View {
             Tab("Discover", systemImage: "music.note.list", value: AppRouter.Tab.discover) {
                 DiscoverScreen()
             }
-            Tab("Snippets", systemImage: "waveform", value: AppRouter.Tab.snippets) {
+            Tab("Recent", systemImage: "waveform", value: AppRouter.Tab.snippets) {
                 SnippetsScreen()
             }
         }
+        .sheet(item: $router.receivedSnippet) { snippet in
+            SnippetPlaybackView(snippet: snippet)
+        }
+        .alert("Couldn't open mif", isPresented: Binding(get: { router.linkError != nil }, set: { if !$0 { router.linkError = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: { Text(router.linkError ?? "") }
+        .sheet(item: $composer.sharing) { snippet in MifSharePicker(snippet: snippet) }
         .sheet(item: $composer.request) { request in
             ComposeSheet(request: request)
                 .ignoresSafeArea()

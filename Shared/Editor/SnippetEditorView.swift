@@ -19,6 +19,7 @@ struct SnippetEditorView: View {
     @State private var sending: SendDestination.ID?
     @State private var sendError: String?
 
+
     init(track: Track, sendTitle: String = "Send", onSend: @escaping (Snippet) async throws -> Void) {
         self.init(track: track, destinations: [
             SendDestination(id: "send", name: sendTitle, title: sendTitle, symbol: "arrow.up.message.fill", send: onSend),
@@ -113,9 +114,9 @@ struct SnippetEditorView: View {
 
     private var caption: String {
         switch model.track.kind {
-        case .catalog: "Drag the waveform to pick the moment · from Apple Music’s preview"
-        case .server where !model.lyrics.isEmpty: "Drag the waveform or tap a lyric to pick the moment"
-        case .server, .file: "Drag the waveform to pick the moment"
+        case .catalog: "Drag the waveform or its edges · up to 20 seconds · preview"
+        case .server where !model.lyrics.isEmpty: "Drag the waveform or its edges · up to 20 seconds"
+        case .server, .file: "Drag the waveform or its edges · up to 20 seconds"
         }
     }
 
@@ -153,19 +154,31 @@ struct SnippetEditorView: View {
     }
 
     private var loadingTimeline: some View {
-        VStack(spacing: 12) {
-            ProgressView().tint(.white)
-            Text(loadingMessage)
-                .font(.footnote)
-                .opacity(0.7)
+        VStack(spacing: 14) {
+            if model.isPreparing {
+                HStack {
+                    Text(model.isFinishingDownload ? "Finishing your song…" : "Your song is downloading")
+                    Spacer()
+                    Text("\(Int(model.downloadProgress * 100))%").monospacedDigit()
+                }
+                ProgressView(value: model.downloadProgress)
+                    .tint(.white)
+                    .animation(.linear(duration: 0.25), value: model.downloadProgress)
+            } else {
+                ProgressView().tint(.white)
+                Text("Loading song…")
+            }
         }
-        .frame(height: 180)
+        .font(.footnote)
+        .padding(20)
+        .frame(maxWidth: .infinity, minHeight: 140)
+        .background(.white.opacity(0.08), in: .rect(cornerRadius: 16))
+        .accessibilityIdentifier("song-download-progress")
     }
 
     private var controls: some View {
         VStack(spacing: 16) {
             LengthPicker(options: model.availableLengths, selection: model.length) { model.setLength($0) }
-
             HStack(spacing: 14) {
                 PlayButton(state: model.previewState, progress: model.previewProgress, size: 54) {
                     Haptics.tap()
@@ -195,7 +208,7 @@ struct SnippetEditorView: View {
             .foregroundStyle(.black)
         }
         .buttonStyle(.plain)
-        .disabled(model.isSaving || sending != nil)
+        .disabled(!model.canSend || model.isSaving || sending != nil)
         .accessibilityLabel(destination.title)
         .accessibilityHint("Sends a \(Int(model.length)) second snippet")
     }

@@ -1,5 +1,11 @@
-// Package catalog is the song database: metadata, synced lyrics and waveforms in SQLite,
-// with FTS5 full-text search over titles, artists, albums and lyrics.
+// Package catalog is the song database: canonical songs, the provider tracks linked to
+// them, synced lyrics, waveforms and mifs in SQLite, with FTS5 full-text search over
+// titles, artists, albums and lyrics.
+//
+// A song's ID is MIFS's own and never derives from a provider: provider tracks (Spotify,
+// Deezer, …) are links to a song, matched by provider ID, then ISRC, then title, artist and
+// duration (see EnsureSong). A song exists before its audio does; Status says how far
+// ingestion has got.
 //
 // Media bytes live in the blob store; rows only reference blob keys.
 package catalog
@@ -22,29 +28,53 @@ import (
 // ErrNotFound is returned when a song (or its lyrics/waveform) doesn't exist.
 var ErrNotFound = errors.New("not found")
 
+// Status is how far a song's ingestion has got.
+type Status string
+
+const (
+	// StatusPending: queued for ingestion, or waiting to retry after a transient failure.
+	StatusPending Status = "pending"
+	// StatusProcessing: a worker is fetching and processing the audio.
+	StatusProcessing Status = "processing"
+	// StatusReady: audio and waveform are in place (lyrics too, when a provider had them).
+	StatusReady Status = "ready"
+	// StatusUnavailable: no audio source could supply the song. Retried when requested again.
+	StatusUnavailable Status = "unavailable"
+	// StatusFailed: ingestion kept failing. Retried when requested again.
+	StatusFailed Status = "failed"
+)
+
 // Song is a catalog entry. Times are in milliseconds.
 type Song struct {
-	ID               string
-	Title            string
-	Artist           string
-	Album            string // empty for singles
-	TrackNumber      int    // 0 when unknown
-	ReleaseYear      int    // 0 when unknown
-	Genre            string
-	Explicit         bool
-	DurationMs       int64
-	HighlightStartMs int64 // suggested snippet start; -1 when unknown
-	AudioKey         string
-	AudioContentType string
-	AudioBitrate     int
-	AudioBytes       int64
-	ArtworkKey       string // empty when the song has no artwork
-	ThumbnailKey     string
-	LicenseName      string
-	LicenseURL       string
-	Attribution      string
-	HasLyrics        bool
-	UpdatedAt        time.Time
+	DownloadedBytes    int64
+	DownloadTotalBytes int64
+	ID                 string
+	ISRC               string // empty when unknown
+	Status             Status // Put treats empty as StatusReady
+	StatusDetail       string // why the song isn't ready; empty when it is
+	Attempts           int    // ingestion attempts so far
+	Title              string
+	Artist             string
+	Album              string // empty for singles
+	TrackNumber        int    // 0 when unknown
+	ReleaseYear        int    // 0 when unknown
+	Genre              string
+	Explicit           bool
+	DurationMs         int64
+	HighlightStartMs   int64  // suggested snippet start; -1 when unknown
+	AudioKey           string // empty until the song is ready
+	AudioSource        string // what supplied the audio: "manual", "library", "command", …
+	AudioContentType   string
+	AudioBitrate       int
+	AudioBytes         int64
+	ArtworkKey         string // empty when the song has no artwork
+	ThumbnailKey       string
+	ArtworkURL         string // a provider's artwork, shown until ArtworkKey is set
+	LicenseName        string
+	LicenseURL         string
+	Attribution        string
+	HasLyrics          bool
+	UpdatedAt          time.Time
 }
 
 // LyricLine is one synced lyric line.
@@ -74,7 +104,9 @@ type Store struct {
 
 // Open opens (creating and migrating if needed) the database at path.
 func Open(path string) (*Store, error) {
-	dsn := "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)"
+	// _txlock=immediate takes the write lock when a transaction begins, so concurrent
+	// read-then-write transactions queue on busy_timeout instead of failing to upgrade.
+	dsn := "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)&_txlock=immediate"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
@@ -84,10 +116,17 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("migrate %s: %w", path, err)
 	}
+	if err := store.backfillMatchKeys(context.Background()); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return store, nil
 }
 
 func (s *Store) Close() error { return s.db.Close() }
+
+// Ready reports whether the song can be played and clipped.
+func (song Song) Ready() bool { return song.Status == StatusReady && song.AudioKey != "" }
 
 // migrations[i] upgrades the schema from user_version i to i+1. Append only.
 var migrations = []string{`
@@ -131,6 +170,53 @@ CREATE VIRTUAL TABLE songs_fts USING fts5 (
 	song_id UNINDEXED, title, artist, album, lyrics,
 	tokenize = 'unicode61 remove_diacritics 2'
 );
+`, `
+-- Songs can exist before their audio: audio_key stays '' until status is 'ready'.
+-- Songs imported before this migration are ready and were imported by hand.
+ALTER TABLE songs ADD COLUMN isrc            TEXT NOT NULL DEFAULT '';
+ALTER TABLE songs ADD COLUMN match_key       TEXT NOT NULL DEFAULT ''; -- normalised title|artist
+ALTER TABLE songs ADD COLUMN status          TEXT NOT NULL DEFAULT 'ready';
+ALTER TABLE songs ADD COLUMN status_detail   TEXT NOT NULL DEFAULT '';
+ALTER TABLE songs ADD COLUMN attempts        INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE songs ADD COLUMN next_attempt_at TEXT NOT NULL DEFAULT '';
+ALTER TABLE songs ADD COLUMN audio_source    TEXT NOT NULL DEFAULT '';
+ALTER TABLE songs ADD COLUMN artwork_url     TEXT NOT NULL DEFAULT '';
+UPDATE songs SET audio_source = 'manual';
+CREATE UNIQUE INDEX songs_by_isrc ON songs (isrc) WHERE isrc <> '';
+CREATE INDEX songs_by_match_key ON songs (match_key) WHERE match_key <> '';
+CREATE INDEX songs_queue ON songs (next_attempt_at) WHERE status = 'pending';
+
+-- A provider's track, linked to the canonical song it is a copy of.
+CREATE TABLE provider_tracks (
+	provider    TEXT NOT NULL, -- 'spotify', 'deezer', …
+	provider_id TEXT NOT NULL,
+	song_id     TEXT NOT NULL REFERENCES songs (id) ON DELETE CASCADE,
+	isrc        TEXT NOT NULL DEFAULT '',
+	title       TEXT NOT NULL,
+	artist      TEXT NOT NULL,
+	duration_ms INTEGER NOT NULL DEFAULT 0,
+	url         TEXT NOT NULL DEFAULT '', -- the track's page on the provider
+	linked_at   TEXT NOT NULL,
+	PRIMARY KEY (provider, provider_id)
+);
+CREATE INDEX provider_tracks_by_song ON provider_tracks (song_id);
+
+-- A shared moment of a song. Immutable: it pins the audio it was cut from and the lyrics
+-- heard, so it plays the same forever even if the song is re-ingested. No cascade: a
+-- song with mifs can't be deleted out from under them.
+CREATE TABLE mifs (
+	id          TEXT PRIMARY KEY,
+	song_id     TEXT NOT NULL REFERENCES songs (id),
+	audio_key   TEXT NOT NULL,
+	start_ms    INTEGER NOT NULL,
+	duration_ms INTEGER NOT NULL,
+	lyrics      TEXT NOT NULL DEFAULT '[]', -- JSON array of LyricLine, in song time
+	created_at  TEXT NOT NULL
+);
+CREATE INDEX mifs_by_song ON mifs (song_id);
+`, `
+ALTER TABLE songs ADD COLUMN downloaded_bytes INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE songs ADD COLUMN download_total_bytes INTEGER NOT NULL DEFAULT 0;
 `}
 
 func (s *Store) migrate(ctx context.Context) error {
@@ -161,6 +247,7 @@ func (s *Store) migrate(ctx context.Context) error {
 const songColumns = `s.id, s.title, s.artist, s.album, s.track_number, s.release_year, s.genre, s.explicit,
 	s.duration_ms, s.highlight_start_ms, s.audio_key, s.audio_content_type, s.audio_bitrate, s.audio_bytes,
 	s.artwork_key, s.thumbnail_key, s.license_name, s.license_url, s.attribution, s.updated_at,
+	s.isrc, s.status, s.status_detail, s.attempts, s.audio_source, s.artwork_url, s.downloaded_bytes, s.download_total_bytes,
 	EXISTS (SELECT 1 FROM lyrics l WHERE l.song_id = s.id)`
 
 func scanSong(row interface{ Scan(...any) error }) (Song, error) {
@@ -169,7 +256,9 @@ func scanSong(row interface{ Scan(...any) error }) (Song, error) {
 	err := row.Scan(&song.ID, &song.Title, &song.Artist, &song.Album, &song.TrackNumber, &song.ReleaseYear,
 		&song.Genre, &song.Explicit, &song.DurationMs, &song.HighlightStartMs, &song.AudioKey,
 		&song.AudioContentType, &song.AudioBitrate, &song.AudioBytes, &song.ArtworkKey, &song.ThumbnailKey,
-		&song.LicenseName, &song.LicenseURL, &song.Attribution, &updated, &song.HasLyrics)
+		&song.LicenseName, &song.LicenseURL, &song.Attribution, &updated,
+		&song.ISRC, &song.Status, &song.StatusDetail, &song.Attempts, &song.AudioSource, &song.ArtworkURL, &song.DownloadedBytes, &song.DownloadTotalBytes,
+		&song.HasLyrics)
 	if err != nil {
 		return Song{}, err
 	}
@@ -177,9 +266,27 @@ func scanSong(row interface{ Scan(...any) error }) (Song, error) {
 	return song, nil
 }
 
-// Songs lists songs ordered by title, or — when query is non-empty — songs matching every
-// word of query (prefix match on title, artist, album and lyrics), best matches first.
+// Songs lists ready songs ordered by title, or — when query is non-empty — ready songs
+// matching every word of query (prefix match on title, artist, album and lyrics), best
+// matches first.
 func (s *Store) Songs(ctx context.Context, query string, limit, offset int) ([]Song, error) {
+	return s.songs(ctx, query, true, limit, offset)
+}
+
+// Search is Songs over every song, whatever its status: songs being ingested (or that
+// couldn't be) show up too. query must not be empty.
+func (s *Store) Search(ctx context.Context, query string, limit int) ([]Song, error) {
+	if ftsQuery(query) == "" {
+		return []Song{}, nil
+	}
+	return s.songs(ctx, query, false, limit, 0)
+}
+
+func (s *Store) songs(ctx context.Context, query string, readyOnly bool, limit, offset int) ([]Song, error) {
+	filter := ""
+	if readyOnly {
+		filter = "AND s.status = 'ready'"
+	}
 	var rows *sql.Rows
 	var err error
 	if match := ftsQuery(query); match != "" {
@@ -187,20 +294,24 @@ func (s *Store) Songs(ctx context.Context, query string, limit, offset int) ([]S
 		rows, err = s.db.QueryContext(ctx, `
 			SELECT `+songColumns+`
 			FROM songs_fts f JOIN songs s ON s.id = f.song_id
-			WHERE songs_fts MATCH ?
+			WHERE songs_fts MATCH ? `+filter+`
 			ORDER BY bm25(songs_fts, 0, 10, 6, 3, 1), s.title COLLATE NOCASE, s.id
 			LIMIT ? OFFSET ?`, match, limit, offset)
 	} else {
 		rows, err = s.db.QueryContext(ctx, `
 			SELECT `+songColumns+` FROM songs s
+			WHERE 1 `+filter+`
 			ORDER BY s.title COLLATE NOCASE, s.id
 			LIMIT ? OFFSET ?`, limit, offset)
 	}
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	return collectSongs(rows)
+}
 
+func collectSongs(rows *sql.Rows) ([]Song, error) {
+	defer rows.Close()
 	songs := []Song{}
 	for rows.Next() {
 		song, err := scanSong(rows)
@@ -235,10 +346,10 @@ func (s *Store) Song(ctx context.Context, id string) (Song, error) {
 	return song, err
 }
 
-// Count returns the number of songs.
+// Count returns the number of ready songs.
 func (s *Store) Count(ctx context.Context) (int, error) {
 	var n int
-	err := s.db.QueryRowContext(ctx, "SELECT count(*) FROM songs").Scan(&n)
+	err := s.db.QueryRowContext(ctx, "SELECT count(*) FROM songs WHERE status = 'ready'").Scan(&n)
 	return n, err
 }
 
@@ -276,9 +387,14 @@ func (s *Store) Waveform(ctx context.Context, id string) (Waveform, error) {
 }
 
 // Put inserts or replaces a song with its lyrics, waveform and search entry, atomically.
+// It is how a song becomes ready: an empty Status means StatusReady.
 func (s *Store) Put(ctx context.Context, record Record) error {
 	song := record.Song
-	now := time.Now().UTC().Format(time.RFC3339)
+	now := timestamp(time.Now())
+	if song.Status == "" {
+		song.Status = StatusReady
+	}
+	song.ISRC = NormalizeISRC(song.ISRC)
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -289,8 +405,9 @@ func (s *Store) Put(ctx context.Context, record Record) error {
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO songs (id, title, artist, album, track_number, release_year, genre, explicit, duration_ms,
 			highlight_start_ms, audio_key, audio_content_type, audio_bitrate, audio_bytes, artwork_key,
-			thumbnail_key, license_name, license_url, attribution, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			thumbnail_key, license_name, license_url, attribution, created_at, updated_at,
+			isrc, match_key, status, status_detail, audio_source, artwork_url)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET
 			title = excluded.title, artist = excluded.artist, album = excluded.album,
 			track_number = excluded.track_number, release_year = excluded.release_year, genre = excluded.genre,
@@ -300,11 +417,17 @@ func (s *Store) Put(ctx context.Context, record Record) error {
 			audio_bytes = excluded.audio_bytes, artwork_key = excluded.artwork_key,
 			thumbnail_key = excluded.thumbnail_key, license_name = excluded.license_name,
 			license_url = excluded.license_url, attribution = excluded.attribution,
-			updated_at = excluded.updated_at`,
+			updated_at = excluded.updated_at, isrc = excluded.isrc, match_key = excluded.match_key,
+			status = excluded.status, status_detail = excluded.status_detail,
+			audio_source = excluded.audio_source, artwork_url = excluded.artwork_url`,
 		song.ID, song.Title, song.Artist, song.Album, song.TrackNumber, song.ReleaseYear, song.Genre, song.Explicit,
 		song.DurationMs, song.HighlightStartMs, song.AudioKey, song.AudioContentType, song.AudioBitrate,
 		song.AudioBytes, song.ArtworkKey, song.ThumbnailKey, song.LicenseName, song.LicenseURL, song.Attribution,
-		now, now)
+		now, now, song.ISRC, MatchKey(song.Title, song.Artist), song.Status, song.StatusDetail, song.AudioSource,
+		song.ArtworkURL)
+	if isUniqueViolation(err) {
+		return fmt.Errorf("song %s: ISRC %s already belongs to another song", song.ID, song.ISRC)
+	}
 	if err != nil {
 		return err
 	}
@@ -338,13 +461,69 @@ func (s *Store) Put(ctx context.Context, record Record) error {
 		return err
 	}
 
-	if _, err := tx.ExecContext(ctx, "DELETE FROM songs_fts WHERE song_id = ?", song.ID); err != nil {
-		return err
-	}
-	_, err = tx.ExecContext(ctx, "INSERT INTO songs_fts (song_id, title, artist, album, lyrics) VALUES (?, ?, ?, ?, ?)",
-		song.ID, song.Title, song.Artist, song.Album, strings.Join(lyricText, "\n"))
-	if err != nil {
+	if err := indexSong(ctx, tx, song, strings.Join(lyricText, "\n")); err != nil {
 		return err
 	}
 	return tx.Commit()
+}
+
+// indexSong replaces the song's search entry.
+func indexSong(ctx context.Context, tx *sql.Tx, song Song, lyrics string) error {
+	if _, err := tx.ExecContext(ctx, "DELETE FROM songs_fts WHERE song_id = ?", song.ID); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, "INSERT INTO songs_fts (song_id, title, artist, album, lyrics) VALUES (?, ?, ?, ?, ?)",
+		song.ID, song.Title, song.Artist, song.Album, lyrics)
+	return err
+}
+
+// backfillMatchKeys computes match keys for songs imported before they existed.
+func (s *Store) backfillMatchKeys(ctx context.Context) error {
+	rows, err := s.db.QueryContext(ctx, "SELECT id, title, artist FROM songs WHERE match_key = ''")
+	if err != nil {
+		return err
+	}
+	keys := map[string]string{}
+	for rows.Next() {
+		var id, title, artist string
+		if err := rows.Scan(&id, &title, &artist); err != nil {
+			rows.Close()
+			return err
+		}
+		keys[id] = MatchKey(title, artist)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for id, key := range keys {
+		if _, err := s.db.ExecContext(ctx, "UPDATE songs SET match_key = ? WHERE id = ?", key, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func timestamp(t time.Time) string { return t.UTC().Format(time.RFC3339) }
+
+func isUniqueViolation(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed")
+}
+
+// PutPendingLyrics exposes metadata lyrics while the full audio is being prepared.
+func (s *Store) PutPendingLyrics(ctx context.Context, id string, lines []LyricLine) error {
+	if len(lines) == 0 {
+		return nil
+	}
+	data, err := json.Marshal(lines)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, "INSERT INTO lyrics (song_id, lines) VALUES (?, ?) ON CONFLICT(song_id) DO UPDATE SET lines=excluded.lines", id, string(data))
+	return err
+}
+
+func (s *Store) SetDownloadProgress(ctx context.Context, id string, downloaded, total int64) error {
+	_, err := s.db.ExecContext(ctx, "UPDATE songs SET downloaded_bytes=?, download_total_bytes=? WHERE id=? AND status='processing'", max(0, downloaded), max(0, total), id)
+	return err
 }

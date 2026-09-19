@@ -19,7 +19,7 @@ struct MusicServerTests {
     """
 
     @Test func decodesSongsIntoServerTracks() throws {
-        let tracks = try JSONDecoder().decode(SongList.self, from: Data(songList.utf8)).songs.map(\.track)
+        let tracks = try JSONDecoder().decode(SongList.self, from: Data(songList.utf8)).songs.compactMap(\.track)
         #expect(tracks.count == 2)
 
         let neon = tracks[0]
@@ -34,6 +34,38 @@ struct MusicServerTests {
         let single = tracks[1]
         #expect(single.album == nil && single.artworkURL == nil && single.highlightStart == nil)
         #expect(single.isExplicit)
+    }
+
+    /// Shape of GET /v1/search: a ready MIFS song and a Spotify track MIFS doesn't have yet.
+    @Test func decodesSearchResults() throws {
+        let json = """
+        {"results": [
+          {"ref": "mifs:neon-harbor", "songId": "neon-harbor", "status": "ready", "source": "spotify",
+           "title": "Neon Harbor", "artist": "Orchid Relay", "explicit": false,
+           "song": {"id": "neon-harbor", "status": "ready", "title": "Neon Harbor", "artist": "Orchid Relay",
+                    "explicit": false, "durationMs": 1000, "hasLyrics": true,
+                    "audio": {"url": "http://localhost:8080/media/audio/ab/ab.m4a", "contentType": "audio/mp4", "size": 1}}},
+          {"ref": "spotify:0VjIjW4GlUZAMYd2vXMi3b", "status": "new", "source": "spotify",
+           "title": "Blinding Lights", "artist": "The Weeknd", "album": "After Hours", "durationMs": 200040,
+           "explicit": false, "isrc": "USUG11904206",
+           "artwork": {"url": "https://i.scdn.co/640.jpg", "thumbnailUrl": "https://i.scdn.co/300.jpg"}}
+        ], "incomplete": true}
+        """
+        let results = try JSONDecoder().decode(SearchResponseProbe.self, from: Data(json.utf8)).results
+        #expect(results.count == 2)
+        #expect(results[0].isReady && results[0].song?.track?.id == "neon-harbor")
+        #expect(!results[1].isReady && results[1].sourceName == "Spotify" && results[1].id == "spotify:0VjIjW4GlUZAMYd2vXMi3b")
+        #expect(results[1].artwork?.thumbnailUrl.lastPathComponent == "300.jpg")
+    }
+
+    /// A song still being added has no audio, so it isn't a playable track yet.
+    @Test func pendingSongsAreNotTracks() throws {
+        let json = """
+        {"id": "vnac4yqo3rml", "status": "processing", "title": "Blinding Lights", "artist": "The Weeknd",
+         "explicit": false, "durationMs": 200000, "hasLyrics": false}
+        """
+        let song = try JSONDecoder().decode(SongList.Song.self, from: Data(json.utf8))
+        #expect(song.track == nil)
     }
 
     @Test func readsConfiguredURLFromInfoPlist() {
@@ -101,6 +133,22 @@ struct ServerSnippetLinkTests {
         #expect(decoded.playback?.url == original.track.previewURL)
     }
 
+    /// With a mif, devices without MIFS open its page; the app still reads the snippet from
+    /// the `mifs_*` items, as older versions do.
+    @Test func serverSnippetLinksToItsMifPage() throws {
+        var original = serverSnippet()
+        original.shareURL = URL(string: "http://192.168.1.20:8080/m/xsgdjktq7w66")
+        let url = try #require(SnippetLink.url(for: original))
+        #expect(url.path() == "/m/xsgdjktq7w66")
+
+        let decoded = try #require(SnippetLink.snippet(from: url))
+        #expect(decoded.shareURL == original.shareURL)
+        #expect(decoded.track.previewURL == original.track.previewURL)
+        #expect(decoded.playback?.url.path() == "/v1/mifs/xsgdjktq7w66/audio")
+        #expect(decoded.playback?.start == 0)
+        #expect(decoded.lyrics == original.lyrics)
+    }
+
     @Test func catalogSnippetsStayCatalog() throws {
         var snippet = serverSnippet()
         snippet.track.kind = .catalog
@@ -131,4 +179,71 @@ struct ServerSnippetLinkTests {
         #expect(snippets.first?.lyrics == nil)
         #expect(snippets.first?.track.thumbnailURL == nil)
     }
+}
+
+/// Mirrors the private wire type so tests can decode a whole search response.
+private struct SearchResponseProbe: Decodable {
+    let results: [ServerSearchResult]
+}
+
+@MainActor
+struct PreparationFlowTests {
+    @Test func downloadProgressReplacesTimelineUntilReady() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [PreparationProtocol.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        let server = MusicServer(baseURL: URL(string: "https://mifs.test"), session: session)
+        let track = Track(id: "spotify:test", kind: .catalog, title: "Test", artist: "Artist",
+            preparationRef: "spotify:test", expectedDuration: 60)
+        let editor = SnippetEditorModel(track: track, server: server)
+        let loading = Task { await editor.load() }
+        defer { loading.cancel() }
+        let deadline = ContinuousClock.now + .seconds(3)
+        while editor.downloadFraction == nil && ContinuousClock.now < deadline { await Task.yield() }
+        #expect(editor.isPreparing)
+        #expect(editor.phase == .loading)
+        #expect(editor.downloadFraction == 0.5)
+        #expect(!editor.canSend)
+        await loading.value
+        defer { editor.stopPreview() }
+        #expect(editor.track.kind == .server)
+        editor.setRange(start: 17.25, end: 24.5)
+        editor.resizeStart(to: 19)
+        #expect(editor.start == 19)
+        #expect(editor.start + editor.length == 24.5)
+        editor.resizeEnd(to: 80)
+        #expect(editor.length == 20)
+        editor.resizeStart(to: 0)
+        #expect(editor.length == 20)
+        editor.resizeEnd(to: 18)
+        #expect(editor.length == 1)
+        #expect(editor.canSend)
+        #expect(editor.lyrics.first?.text == "Test lyric")
+        editor.setRange(start: 58, end: 90)
+        #expect(editor.length == 20)
+        #expect(editor.start == 40)
+    }
+}
+
+private nonisolated final class PreparationProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "mifs.test" }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let path = request.url!.path
+        let json: String
+        if path.hasSuffix("/lyrics") {
+            json = #"{"lines":[{"startMs":17000,"endMs":25000,"text":"Test lyric"}]}"#
+        } else if path.hasSuffix("/waveform") {
+            json = #"{"durationMs":60000,"pointsPerSecond":10,"rms":[0.1,0.8,0.4]}"#
+        } else if request.httpMethod == "POST" {
+            json = #"{"id":"song","status":"processing","downloadedBytes":5000,"downloadTotalBytes":10000,"title":"Test","artist":"Artist","explicit":false}"#
+        } else {
+            json = #"{"id":"song","status":"ready","title":"Test","artist":"Artist","explicit":false,"audio":{"url":"https://mifs.test/media/audio.m4a"}}"#
+        }
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type":"application/json"])!, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(json.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
 }

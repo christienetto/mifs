@@ -15,12 +15,20 @@ final class SnippetEditorModel {
     /// Picking a lyric starts the snippet slightly early so the first word isn't faded in.
     static let lyricLeadIn: TimeInterval = 0.25
 
-    let track: Track
+    private(set) var track: Track
     private(set) var phase: Phase = .loading
     private(set) var waveform = Waveform(levels: [], duration: 0)
     /// Synced lyrics (MIFS server songs); empty when there are none.
     private(set) var lyrics: [LyricLine] = []
     private(set) var isSaving = false
+    private(set) var isPreparing = false
+    private(set) var preparationNote: String?
+    private(set) var downloadFraction: Double?
+    private(set) var isFinishingDownload = false
+    /// What the download bar shows: always moving forward, never behind `downloadFraction`.
+    private(set) var downloadProgress: Double = 0
+    var canSend: Bool { phase == .ready && !isPreparing && track.preparationRef == nil }
+
     /// Start of the selection in seconds. Written continuously by the scrubber.
     var start: TimeInterval = 0
     private(set) var length: TimeInterval = 10
@@ -46,12 +54,13 @@ final class SnippetEditorModel {
     var previewState: SnippetPlayer.State { isPreviewing ? player.state : .idle }
     var previewProgress: Double { isPreviewing ? player.progress : 0 }
     /// Song time being heard while the selection previews.
-    var playhead: TimeInterval? { isPreviewing && player.state == .playing ? start + previewProgress * length : nil }
+    var playhead: TimeInterval? { !isPreparing && isPreviewing && player.state == .playing ? start + previewProgress * length : nil }
     var selectedLyrics: [LyricLine] { lyrics.heard(from: start, to: start + length) }
 
     func load() async {
-        guard phase != .ready else { return }
+        guard phase != .ready || track.preparationRef != nil else { return }
         phase = .loading
+        if let ref = track.preparationRef { await prepareSelection(ref: ref); return }
         do {
             let (audio, analysed) = try await prepareAudio()
             guard analysed.duration >= 1 else { throw WaveformAnalyzer.Failure.noAudio }
@@ -66,6 +75,78 @@ final class SnippetEditorModel {
         } catch {
             phase = .failed(Self.message(for: error))
         }
+    }
+
+
+    /// No preview audio: the timeline appears only when the complete recording is ready.
+    private func prepareSelection(ref: String) async {
+        isPreparing = true
+        preparationNote = "Your song is downloading"
+        downloadFraction = nil
+        downloadProgress = 0
+        let ticker = Task { await advanceDownloadProgress() }
+        defer { isPreparing = false; ticker.cancel() }
+        do {
+            var song = try await server.prepare(ref: ref)
+            let deadline = ContinuousClock.now + .seconds(360)
+            while song.track == nil {
+                try Task.checkCancellation()
+                if song.status == "failed" || song.status == "unavailable" { throw MusicServer.Failure.songUnavailable }
+                if ContinuousClock.now >= deadline { throw MusicServer.Failure.stillAdding }
+                if let total = song.downloadTotalBytes, total > 0 {
+                    downloadFraction = (Double(song.downloadedBytes ?? 0) / Double(total)).clamped(to: 0...1)
+                    isFinishingDownload = downloadFraction == 1
+                } else { downloadFraction = nil; isFinishingDownload = false }
+                if lyrics.isEmpty { lyrics = (try? await server.lyrics(for: song.id)) ?? [] }
+                try await Task.sleep(for: .milliseconds(500))
+                song = try await server.song(id: song.id)
+            }
+            guard let fullTrack = song.track else { throw MusicServer.Failure.songUnavailable }
+            track = fullTrack
+            let (audio, envelope) = try await prepareAudio()
+            try Task.checkCancellation()
+            guard envelope.duration >= 1 else { throw WaveformAnalyzer.Failure.noAudio }
+            audioURL = audio; waveform = envelope
+            length = min(10, envelope.duration)
+            start = fullTrack.highlightStart?.clamped(to: 0...maxStart) ?? envelope.loudestWindow(length: length)
+            downloadFraction = 1; downloadProgress = 1; preparationNote = nil
+            phase = .ready; scrollRequest += 1
+            isPreparing = false
+            playSelection()
+        } catch is CancellationError {
+        } catch {
+            preparationNote = nil
+            phase = .failed(Self.message(for: error))
+        }
+    }
+
+    /// spotDL reports no bytes while it searches, and the server none while it processes, so the bar
+    /// eases toward 97% on its own and jumps ahead whenever the real download is further along.
+    private func advanceDownloadProgress() async {
+        while !Task.isCancelled {
+            let real = downloadFraction.map { 0.1 + 0.8 * $0 } ?? 0
+            downloadProgress = max(downloadProgress + (0.97 - downloadProgress) * 0.012, real)
+            try? await Task.sleep(for: .milliseconds(250))
+        }
+    }
+
+    /// Resize one edge while holding the other fixed. Scrolling is deferred until the drag ends.
+    func resizeStart(to value: TimeInterval) {
+        let end = start + length
+        start = value.clamped(to: max(0, end - 20)...max(0, end - 1))
+        length = end - start
+    }
+
+    func resizeEnd(to value: TimeInterval) {
+        let end = value.clamped(to: min(duration, start + 1)...min(duration, start + 20))
+        length = end - start
+    }
+
+    func setRange(start newStart: TimeInterval, end: TimeInterval) {
+        guard newStart.isFinite, end.isFinite, end > newStart else { return }
+        length = (end - newStart).clamped(to: 1...min(20, max(1, duration)))
+        start = newStart.clamped(to: 0...maxStart)
+        nudged()
     }
 
     /// The URL to play from and the envelope to draw. Catalog previews are downloaded and
@@ -83,14 +164,7 @@ final class SnippetEditorModel {
             guard let stream = track.previewURL else { throw URLError(.fileDoesNotExist) }
             let server = server, id = track.id
             async let lines = server.lyrics(for: id)
-            let envelope: Waveform
-            do {
-                envelope = try await server.waveform(for: id)
-            } catch let error where !(error is CancellationError) {
-                // Fall back to analysing the whole file, as for catalog previews.
-                Logger.mifs.error("Server waveform unavailable: \(error.localizedDescription)")
-                envelope = try await WaveformAnalyzer.analyze(try await PreviewCache.localFile(for: stream))
-            }
+            let envelope = try await server.waveform(for: id)
             do {
                 lyrics = try await lines
             } catch {
@@ -104,7 +178,7 @@ final class SnippetEditorModel {
         guard newLength != length else { return }
         // Keep the selection centred on the same moment.
         let centre = start + length / 2
-        length = min(newLength, duration)
+        length = newLength.clamped(to: 1...min(20, max(1, duration)))
         start = (centre - length / 2).clamped(to: 0...maxStart)
         scrollRequest += 1
         Haptics.selection()
@@ -119,6 +193,7 @@ final class SnippetEditorModel {
 
     /// Starts the selection at a lyric line and previews it.
     func select(_ line: LyricLine) {
+        guard !isPreparing else { return }
         start = (line.start - Self.lyricLeadIn).clamped(to: 0...maxStart)
         Haptics.selection()
         nudged()
@@ -139,6 +214,7 @@ final class SnippetEditorModel {
 
     /// Finalises the selection: exports owned audio if needed and records it in history.
     func makeSnippet() async throws -> Snippet {
+        guard canSend else { throw MusicServer.Failure.stillAdding }
         isSaving = true
         defer { isSaving = false }
         stopPreview()
@@ -152,6 +228,9 @@ final class SnippetEditorModel {
             waveform: waveform.levels(from: start, duration: length, bars: Snippet.waveformBars)
         )
         if !selectedLyrics.isEmpty { snippet.lyrics = selectedLyrics }
+        if track.kind == .server {
+            snippet.shareURL = try await server.mif(songID: track.id, start: start, duration: length)
+        }
         if track.kind == .file, let audioURL {
             let artwork = track.artworkFile.flatMap { try? Data(contentsOf: AppGroup.url(for: $0)) }
             snippet.clipFile = try await SnippetExporter.export(

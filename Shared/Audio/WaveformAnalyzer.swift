@@ -27,6 +27,34 @@ nonisolated struct Waveform: Sendable, Equatable {
         return resampled.map { peak > 0 ? max(0.08, $0 / peak) : 0.08 }
     }
 
+    /// Match a preview's loudness envelope to the recording, allowing volume differences.
+    /// Reject uncertain or repeated matches rather than silently sharing the wrong verse.
+    func offset(of preview: Waveform) -> TimeInterval? {
+        let full = rms ?? levels, sample = preview.rms ?? preview.levels
+        let trim = 10 // ignore provider fades at both ends
+        guard sample.count > 60, full.count >= sample.count else { return nil }
+        let needle = Array(sample[trim..<(sample.count - trim)]).map(Double.init)
+        let mean = needle.reduce(0, +) / Double(needle.count)
+        let centered = needle.map { $0 - mean }
+        let energy = centered.reduce(0) { $0 + $1 * $1 }
+        guard energy > 1e-9 else { return nil }
+        var scores: [(Int, Double)] = []
+        for offset in 0...(full.count - sample.count) {
+            var sum = 0.0, squares = 0.0, dot = 0.0
+            for i in centered.indices {
+                let value = Double(full[offset + trim + i])
+                sum += value; squares += value * value; dot += value * centered[i]
+            }
+            let variance = squares - sum * sum / Double(needle.count)
+            let score = variance > 1e-9 ? dot / sqrt(energy * variance) : 0
+            scores.append((offset, score))
+        }
+        guard let best = scores.max(by: { $0.1 < $1.1 }), best.1 >= 0.8 else { return nil }
+        let rival = scores.filter { abs($0.0 - best.0) > 20 }.map(\.1).max() ?? 0
+        guard best.1 - rival > 0.08 else { return nil }
+        return Double(best.0) / Self.resolution
+    }
+
     /// Start of the most energetic `length`-second window — usually the hook or chorus.
     func loudestWindow(length: TimeInterval) -> TimeInterval {
         let source = rms ?? levels

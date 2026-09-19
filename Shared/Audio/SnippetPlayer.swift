@@ -69,7 +69,7 @@ final class SnippetPlayer {
             } catch is CancellationError {
             } catch {
                 Logger.mifs.error("Playback failed: \(error.localizedDescription)")
-                guard let self, self.itemID == id else { return }
+                guard !Task.isCancelled, let self, self.itemID == id else { return }
                 self.lastError = "Couldn't play this snippet."
                 self.finish()
             }

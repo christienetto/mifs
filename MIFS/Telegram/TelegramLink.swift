@@ -53,6 +53,11 @@ nonisolated enum TelegramLink {
 
     static func startParameter(for snippet: Snippet, intent: Intent) -> String? {
         let track = snippet.track
+        if track.kind == .server, let page = snippet.shareURL,
+           page.pathComponents.count == 3, page.pathComponents[1] == "m",
+           page.lastPathComponent.wholeMatch(of: /[a-z2-7]{12}/) != nil {
+            return "\(intent.rawValue)2_\(page.lastPathComponent)"
+        }
         guard track.kind == .catalog, track.previewURL != nil,
               track.id.wholeMatch(of: /[0-9]{1,15}/) != nil else { return nil }
         return [

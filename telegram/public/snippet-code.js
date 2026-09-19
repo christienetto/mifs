@@ -5,12 +5,14 @@
 // waveform: one hex digit (0–f) per bar, like SnippetLink's mifs_w.
 
 export const VERSION = 1;
-export const LENGTHS = [5, 10, 15];
+export const LENGTHS = [5, 10, 15, 20];
 export const WAVEFORM_BARS = 40;
 
 const PATTERN = /^([sp])1_([0-9]{1,15})_([a-z]{2})_([0-9]{1,6})_([0-9]{1,5})_([0-9a-f]{0,64})$/;
 
 export function parseCode(value) {
+  const mif = /^([sp])2_([a-z2-7]{12})$/.exec(String(value ?? '').trim());
+  if (mif) return { intent: mif[1] === 's' ? 'send' : 'play', mifId: mif[2] };
   const match = PATTERN.exec(String(value ?? '').trim());
   if (!match) return null;
   const [, intent, trackId, storefront, startMs, durationMs, waveform] = match;
@@ -26,7 +28,11 @@ export function parseCode(value) {
   };
 }
 
-export function formatCode({ intent = 'play', trackId, storefront, start, duration, waveform = [] }) {
+export function formatCode({ intent = 'play', mifId, trackId, storefront, start, duration, waveform = [] }) {
+  if (mifId) {
+    if (!/^[a-z2-7]{12}$/.test(mifId)) throw new Error('Invalid mif ID');
+    return `${intent === 'send' ? 's' : 'p'}2_${mifId}`;
+  }
   return [
     `${intent === 'send' ? 's' : 'p'}${VERSION}`,
     String(trackId),

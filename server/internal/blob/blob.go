@@ -1,8 +1,13 @@
-// Package blob stores media files by content hash.
+// Package blob stores immutable media files.
 //
-// Keys look like "audio/3f/3fa9…e1.m4a". Because a key changes whenever its bytes do,
-// blobs are immutable: they can be cached forever and synced as-is to object storage
-// or a CDN (see MIFS_MEDIA_URL).
+// Keys look like "audio/3f/3fa9…e1.m4a". Most are content hashes (Put); derived files
+// such as mif clips use a hash of their recipe instead (PutAt), which is just as immutable
+// because the inputs never change. Either way a key never changes its bytes, so blobs can be
+// cached forever and synced as-is to object storage or a CDN (see MIFS_MEDIA_URL).
+//
+// Put, PutAt, Exists and Locate are the whole storage seam: an S3-compatible store needs
+// only these four, with Locate returning a (presigned) URL that ffmpeg reads with range
+// requests instead of a local path.
 package blob
 
 import (
@@ -46,38 +51,78 @@ func (s *Store) Put(src, kind, ext string) (key string, size int64, err error) {
 	if err != nil {
 		return "", 0, err
 	}
-	sum := hex.EncodeToString(hash.Sum(nil))
-	key = fmt.Sprintf("%s/%s/%s.%s", kind, sum[:2], sum, ext)
+	key = Key(kind, hex.EncodeToString(hash.Sum(nil)), ext)
 	if !validKey.MatchString(key) {
 		return "", 0, fmt.Errorf("invalid blob key %q", key)
 	}
-
-	dest := filepath.Join(s.dir, filepath.FromSlash(key))
-	if _, err := os.Stat(dest); err == nil {
+	if _, ok := s.Exists(key); ok {
 		return key, size, nil
-	}
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-		return "", 0, err
 	}
 	if _, err := in.Seek(0, io.SeekStart); err != nil {
 		return "", 0, err
 	}
+	return key, size, s.write(in, key)
+}
+
+// Key builds a key from a kind, a hex SHA-256 and an extension.
+func Key(kind, sum, ext string) string {
+	return fmt.Sprintf("%s/%s/%s.%s", kind, sum[:2], sum, ext)
+}
+
+// PutAt stores the file at src under a key the caller derived (see Key). The caller
+// guarantees that key always names the same bytes.
+func (s *Store) PutAt(src, key string) (size int64, err error) {
+	if !validKey.MatchString(key) {
+		return 0, fmt.Errorf("invalid blob key %q", key)
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return 0, err
+	}
+	defer in.Close()
+	info, err := in.Stat()
+	if err != nil {
+		return 0, err
+	}
+	return info.Size(), s.write(in, key)
+}
+
+// Exists reports whether key is stored, and its size.
+func (s *Store) Exists(key string) (size int64, ok bool) {
+	if !validKey.MatchString(key) {
+		return 0, false
+	}
+	info, err := os.Stat(s.Locate(key))
+	if err != nil {
+		return 0, false
+	}
+	return info.Size(), true
+}
+
+// Locate returns where key can be read from: a path here, a URL for remote storage.
+func (s *Store) Locate(key string) string {
+	return filepath.Join(s.dir, filepath.FromSlash(key))
+}
+
+// write copies r to key atomically, so readers never see a partial file.
+func (s *Store) write(r io.Reader, key string) error {
+	dest := s.Locate(key)
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return err
+	}
 	tmp, err := os.CreateTemp(filepath.Dir(dest), ".incoming-*")
 	if err != nil {
-		return "", 0, err
+		return err
 	}
 	defer os.Remove(tmp.Name())
-	if _, err := io.Copy(tmp, in); err != nil {
+	if _, err := io.Copy(tmp, r); err != nil {
 		tmp.Close()
-		return "", 0, err
+		return err
 	}
 	if err := tmp.Close(); err != nil {
-		return "", 0, err
+		return err
 	}
-	if err := os.Rename(tmp.Name(), dest); err != nil {
-		return "", 0, err
-	}
-	return key, size, nil
+	return os.Rename(tmp.Name(), dest)
 }
 
 // ValidKey reports whether key has the shape Put produces (no traversal possible).

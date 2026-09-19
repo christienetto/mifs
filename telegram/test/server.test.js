@@ -243,3 +243,39 @@ test('serves the Mini App from static assets', async () => {
   assert.equal(await response.text(), '<html>MIFS</html>');
   assert.equal((await worker.fetch(new Request('https://mifs.example/api/nope'), env)).status, 404);
 });
+
+test('server mifs produce bot artwork cards with escaped lyrics and a play button', async () => {
+  const { share } = await import('../src/worker.js');
+  const calls = [];
+  const serverEnv = { ...env, MIFS_SERVER_URL: 'https://music.example' };
+  const fetchImpl = async (url, options = {}) => {
+    if (String(url) === 'https://music.example/v1/mifs/abcdefghijkl') {
+      return Response.json({ id: 'abcdefghijkl', songId: 'song', startMs: 12345, durationMs: 7250,
+        lyrics: [{ startMs: 13000, endMs: 16000, text: 'You & I <sing>' }],
+        song: { title: 'Song', artist: 'Artist', artwork: { url: 'https://music.example/media/art.jpg' } } });
+    }
+    calls.push(JSON.parse(options.body));
+    return Response.json({ ok: true, result: { id: 'prepared-mif' } });
+  };
+  const response = await share(new Request('https://bot.example/api/share', { method: 'POST',
+    body: JSON.stringify({ code: 's2_abcdefghijkl', initData: await initData(), track: { title: 'forged' } }) }), serverEnv, fetchImpl);
+  assert.equal(response.status, 200);
+  const result = calls[0].result;
+  assert.equal(result.type, 'photo');
+  assert.equal(result.photo_url, 'https://music.example/media/art.jpg');
+  assert.match(result.caption, /You &amp; I &lt;sing&gt;/);
+  assert.match(result.reply_markup.inline_keyboard[0][0].url, /startapp=p2_abcdefghijkl/);
+  assert.equal(calls[0].user_id, 42);
+});
+
+test('mif audio proxy preserves partial responses and never takes a client-supplied URL', async () => {
+  const { mifAudio } = await import('../src/mifs.js');
+  const response = await mifAudio(new Request('https://bot.example/api/mifs/abcdefghijkl/audio', { headers: { Range: 'bytes=0-99' } }),
+    { MIFS_SERVER_URL: 'https://music.example' }, 'abcdefghijkl', async (url, options) => {
+      assert.equal(url, 'https://music.example/v1/mifs/abcdefghijkl/audio');
+      assert.equal(options.headers.get('Range'), 'bytes=0-99');
+      return new Response('audio', { status: 206, headers: { 'Content-Range': 'bytes 0-4/100', 'Content-Type': 'audio/mp4' } });
+    });
+  assert.equal(response.status, 206);
+  assert.equal(response.headers.get('Content-Range'), 'bytes 0-4/100');
+});

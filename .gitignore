@@ -11,6 +11,10 @@ Config/Local.xcconfig
 # Local secrets and environment files.
 .env
 .env.*
+!.env.example
 node_modules/
 .wrangler/
 .dev.vars
+
+# Server-local downloader environment.
+server/.venv/

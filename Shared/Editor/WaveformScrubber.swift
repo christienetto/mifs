@@ -5,13 +5,14 @@ import SwiftUI
 struct WaveformScrubber: View {
     @Bindable var model: SnippetEditorModel
 
-    private let visibleSeconds: Double = 20
+    private let visibleSeconds: Double = 24
     private let barStep: CGFloat = 4
     private let barsPerSegment = 32
 
     @State private var position = ScrollPosition(x: 0)
     @State private var bars: [Float] = []
     @State private var tracker = ScrollTracker()
+    @State private var resizeOrigin: (start: Double, end: Double)?
 
     var body: some View {
         GeometryReader { proxy in
@@ -19,9 +20,10 @@ struct WaveformScrubber: View {
             let height = proxy.size.height
             let pps = pointsPerSecond(width: width)
             let window = model.length * pps
-            let leading = (width - window) / 2
-            let trailing = width - leading - window
-            let lane: CGFloat = model.lyrics.isEmpty ? 0 : 10
+            let layoutLength = resizeOrigin.map { $0.end - $0.start } ?? model.length
+            let leading = (width - layoutLength * pps) / 2
+            let trailing = leading
+            let lane: CGFloat = model.lyrics.isEmpty || model.isPreparing ? 0 : 10
 
             ScrollView(.horizontal) {
                 HStack(spacing: 0) {
@@ -42,13 +44,14 @@ struct WaveformScrubber: View {
                 }
                 .frame(height: height)
             }
+            .scrollDisabled(resizeOrigin != nil)
             .scrollIndicators(.hidden)
             .scrollPosition($position)
             .onScrollGeometryChange(for: ScrollGeometry.self) { $0 } action: { _, geometry in
                 tracker.geometry = geometry
                 if tracker.pendingScroll {
                     applyPendingScroll(pps: pps)
-                } else if pps > 0 {
+                } else if pps > 0 && resizeOrigin == nil {
                     model.start = (geometry.contentOffset.x / pps).clamped(to: 0...model.maxStart)
                 }
             }
@@ -63,14 +66,18 @@ struct WaveformScrubber: View {
                     break
                 }
             }
-            .overlay { selectionOverlay(leading: leading, window: window) }
-            .onChange(of: model.scrollRequest) { requestScroll(pps: pps) }
+            .overlay {
+                let edge = leading + (resizeOrigin.map { model.start - $0.start } ?? 0) * pps
+                selectionOverlay(leading: edge, window: window)
+                rangeHandles(leading: edge, window: window, pps: pps)
+            }
+            .onChange(of: model.scrollRequest) { if resizeOrigin == nil { requestScroll(pps: pps) } }
             .onChange(of: width) { requestScroll(pps: pps) }
             .task(id: BarKey(pps: pps, count: model.waveform.levels.count)) {
                 bars = resampledBars(pps: pps)
             }
         }
-        .accessibilityElement()
+        .accessibilityElement(children: .contain)
         .accessibilityLabel("Snippet start")
         .accessibilityValue("\(model.start.clock) to \((model.start + model.length).clock)")
         .accessibilityAdjustableAction { direction in
@@ -78,6 +85,47 @@ struct WaveformScrubber: View {
             model.start = (model.start + delta).clamped(to: 0...model.maxStart)
             model.nudged()
         }
+    }
+
+    private func rangeHandles(leading: CGFloat, window: CGFloat, pps: CGFloat) -> some View {
+        ZStack(alignment: .topLeading) {
+            handle(isStart: true, pps: pps).offset(x: leading - 18)
+            handle(isStart: false, pps: pps).offset(x: leading + window - 18)
+        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func handle(isStart: Bool, pps: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: 3)
+            .fill(.white)
+            .frame(width: 6)
+            .padding(.vertical, 22)
+            .frame(width: 36)
+            .contentShape(.rect)
+            .gesture(DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    guard pps > 0 else { return }
+                    if resizeOrigin == nil {
+                        resizeOrigin = (model.start, model.start + model.length)
+                        model.stopPreview()
+                    }
+                    guard let origin = resizeOrigin else { return }
+                    let delta = value.translation.width / pps
+                    if isStart { model.resizeStart(to: origin.start + delta) }
+                    else { model.resizeEnd(to: origin.end + delta) }
+                }
+                .onEnded { _ in
+                    resizeOrigin = nil
+                    model.nudged()
+                })
+            .accessibilityElement()
+            .accessibilityLabel(isStart ? "Selection start handle" : "Selection end handle")
+            .accessibilityValue((isStart ? model.start : model.start + model.length).clock)
+            .accessibilityAdjustableAction { direction in
+                let delta: Double = direction == .increment ? 0.5 : -0.5
+                if isStart { model.resizeStart(to: model.start + delta) }
+                else { model.resizeEnd(to: model.start + model.length + delta) }
+                model.nudged()
+            }
     }
 
     private func pointsPerSecond(width: CGFloat) -> CGFloat {

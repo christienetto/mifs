@@ -1,6 +1,7 @@
 // The MIFS bot: a thin companion to the Mini App. It greets people who open it directly, and answers
 // inline queries so a snippet made from the "@bot" button in a chat lands back in that same chat.
 
+import { loadMif } from './mifs.js';
 import { lookupTrack } from '../public/catalog.js';
 import { parseCode } from '../public/snippet-code.js';
 import { snippetResult } from './card.js';
@@ -51,10 +52,14 @@ export async function handleUpdate(update, { env, origin, fetchImpl = fetch }) {
 
 async function answerInlineQuery(query, { env, origin, fetchImpl }) {
   const makeButton = { text: '🎵 Make a Snippet', web_app: { url: `${origin}/?from=inline` } };
-  const snippet = parseCode(query.query);
+  let snippet = parseCode(query.query);
   let results = [];
   if (snippet) {
-    const track = await lookupTrack(snippet.trackId, snippet.storefront, fetchImpl).catch(() => null);
+    let track;
+    if (snippet.mifId) {
+      const resolved = await loadMif(env, snippet.mifId, fetchImpl).catch(() => null);
+      if (resolved) { snippet = resolved.snippet; track = resolved.track; }
+    } else { track = await lookupTrack(snippet.trackId, snippet.storefront, fetchImpl).catch(() => null); }
     if (track) results = [snippetResult({ snippet, track, botUsername: env.BOT_USERNAME })];
   }
   return {

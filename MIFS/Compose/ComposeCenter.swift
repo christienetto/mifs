@@ -13,23 +13,19 @@ final class ComposeCenter {
     }
 
     var request: Request?
+    var sharing: Snippet?
     /// A brief confirmation shown over the app, e.g. after Telegram hands back from a send.
     var confirmation: String?
 
     /// Where the app can send snippets, in the order they're offered.
     var destinations: [SendDestination] {
-        var destinations = [
-            SendDestination(id: "messages", name: "Messages", title: "Send in Messages", symbol: "arrow.up.message.fill") { [weak self] in
-                await self?.send($0)
-            },
-        ]
-        if TelegramLink.isConfigured {
-            destinations.append(SendDestination(id: "telegram", name: "Telegram", title: "Send in Telegram", symbol: "paperplane.fill") { [weak self] in
-                await self?.sendToTelegram($0)
-            })
-        }
-        return destinations
+        [SendDestination(id: "share", name: "Share", title: "Share", symbol: "square.and.arrow.up") { [weak self] in
+            SnippetPlayer.shared.stop()
+            self?.sharing = $0
+        }]
     }
+
+    func share(_ snippet: Snippet) { SnippetPlayer.shared.stop(); sharing = snippet }
 
     func send(_ snippet: Snippet) async {
         SnippetPlayer.shared.stop()
@@ -105,7 +101,8 @@ private struct MessageComposeView: UIViewControllerRepresentable {
 }
 
 enum ShareItems {
-    /// A clip file with a friendly name, or a link to the song (Apple Music, or the MIFS server's audio).
+    /// A clip file with a friendly name, the mif's page (plays anywhere), or a link to the song
+    /// (Apple Music, or the MIFS server's audio).
     static func items(for snippet: Snippet) -> [Any] {
         if let clip = snippet.clipURL {
             let named = URL.temporaryDirectory.appending(path: snippet.attachmentName)
@@ -114,6 +111,9 @@ enum ShareItems {
             return [clip]
         }
         let caption = "🎵 \(snippet.track.title) – \(snippet.track.artist)"
+        if let page = snippet.shareURL {
+            return [caption, page]
+        }
         // A bare media URL would be previewed as a file named by its content hash.
         if snippet.track.kind == .server, let audio = snippet.track.previewURL {
             return ["\(caption)\n\(audio.absoluteString)"]
@@ -135,4 +135,48 @@ struct ShareSheet: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
+}
+
+/// One share entry point; each supported destination gets its native MIFS representation.
+struct MifSharePicker: View {
+    let snippet: Snippet
+    @Environment(ComposeCenter.self) private var composer
+    @Environment(\.dismiss) private var dismiss
+    @State private var selected: Destination?
+    enum Destination { case messages, telegram, other }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Label("\(snippet.track.title) · \(snippet.duration.shortSeconds)", systemImage: "waveform")
+                }
+                Button { choose(.messages) } label: { Label("Messages", systemImage: "message.fill") }
+                if TelegramLink.isConfigured {
+                    Button { choose(.telegram) } label: { Label("Telegram", systemImage: "paperplane.fill") }
+                }
+                Button { choose(.other) } label: { Label("Other Apps", systemImage: "square.and.arrow.up") }
+                if let url = snippet.shareURL {
+                    Button { UIPasteboard.general.url = url; dismiss() } label: { Label("Copy Link", systemImage: "link") }
+                }
+            }
+            .navigationTitle("Share Mif")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+        }
+        .presentationDetents([.medium])
+        .onDisappear {
+            guard let selected else { return }
+            Task {
+                // Wait for the destination picker to finish dismissal before presenting a composer.
+                try? await Task.sleep(for: .milliseconds(300))
+                switch selected {
+                case .messages: await composer.send(snippet)
+                case .telegram: await composer.sendToTelegram(snippet)
+                case .other: composer.request = ComposeCenter.Request(snippet: snippet, message: nil, usesMessages: false)
+                }
+            }
+        }
+    }
+    private func choose(_ destination: Destination) { selected = destination; dismiss() }
 }

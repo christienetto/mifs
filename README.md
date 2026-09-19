@@ -1,22 +1,25 @@
 # MIFS
 
 MIFS is for sending the best few seconds of a song through iMessage. Pick a song, scroll the
-waveform (or tap a lyric) to choose a 5–15 second moment, and send it as an interactive
+waveform (or tap a lyric) to choose a 1–20 second moment, and send it as an interactive
 bubble. The recipient taps the bubble to play that moment.
 
-Songs come from three places:
+Search uses Spotify only. Selecting a missing song opens the editor while the server downloads
+it with spotDL. A download bar reports the transfer progress; the waveform appears once the
+full recording is ready. There are no song previews.
 
-- **MIFS Library.** Full songs, artwork and synced lyrics from the MIFS music server in
-  [`server/`](server/README.md), streamed on demand.
-- **Apple Music.** Search and charts from Apple's public catalog, clipped from 30-second
-  previews.
-- **Your own audio.** Files or DRM-free library songs, sent as an audio attachment.
+Choose a preset or drag the waveform's start and end handles to select up to 20 seconds.
+One **Share** button offers the appropriate destination. Sharing stores only the song reference
+and timestamps; recipients receive just that interval. **Recent** opens saved moments and
+lyrics, and received mifs play on opening.
+
+The Telegram changes are staged locally and paused until a public music server is available.
 
 ## Layout
 
 | Path | |
 | --- | --- |
-| `MIFS/` | The iPhone app: Discover, Snippets, compose |
+| `MIFS/` | The iPhone app: Discover, Recent, compose |
 | `MIFSMessages/` | The iMessage extension: browse, clip and send, play received bubbles |
 | `Shared/` | Code used by both: models, catalog and server clients, audio, editor, UI |
 | `server/` | Go music server: API, SQLite catalog, ingest pipeline, demo songs |
@@ -27,7 +30,10 @@ Songs come from three places:
 
 You need Xcode 26 with an iOS 18+ simulator, Go 1.25+ and ffmpeg (`brew install go ffmpeg`).
 
-1. **Start the server** (it keeps running in the terminal):
+1. **Configure Spotify and spotDL** using [`server/.env.example`](server/.env.example) and
+   the [server setup](server/README.md#try-it-in-the-app).
+
+2. **Start the server** (it keeps running in the terminal):
 
    ```sh
    make -C server run
@@ -36,13 +42,13 @@ You need Xcode 26 with an iOS 18+ simulator, Go 1.25+ and ffmpeg (`brew install 
    This imports the three demo songs into `server/data/` and serves them on
    http://localhost:8080.
 
-2. **Run the app.** Open `MIFS.xcodeproj`, choose the **MIFS** scheme and an iPhone
-   simulator, then Run. **Discover › MIFS Library** lists the server's songs. Open one to
+3. **Run the app.** Open `MIFS.xcodeproj`, choose the **MIFS** scheme and an iPhone
+   simulator, then Run. **Discover › Top Songs** lists the server's songs. Open one to
    see its lyrics beside the waveform, tap a line or drag the waveform to pick the moment,
    and send it.
 
-3. **Try iMessage.** In the simulator's Messages app, open a conversation, tap **+**, then
-   **MIFS**. Search or pick a MIFS Library song, choose **Add to Message**, send it, and tap
+4. **Try iMessage.** In the simulator's Messages app, open a conversation, tap **+**, then
+   **MIFS**. Search or pick a prepared song, choose **Add to Message**, send it, and tap
    the bubble to play the snippet with its lyrics.
 
 ### On a physical iPhone

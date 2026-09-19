@@ -5,13 +5,14 @@ struct SnippetsScreen: View {
     @Environment(ComposeCenter.self) private var composer
     @State private var store = SnippetStore.shared
     @State private var sharing: Snippet?
+    @State private var selected: Snippet?
 
     var body: some View {
         NavigationStack {
             Group {
                 if store.snippets.isEmpty {
                     ContentUnavailableView {
-                        Label("No Snippets Yet", systemImage: "waveform")
+                        Label("No Recent Mifs", systemImage: "waveform")
                     } description: {
                         Text("Snippets you make appear here so you can play and send them again.")
                     } actions: {
@@ -22,7 +23,12 @@ struct SnippetsScreen: View {
                     list
                 }
             }
-            .navigationTitle("Snippets")
+            .navigationTitle("Recent")
+            .navigationDestination(item: $selected) { snippet in
+                SnippetPlaybackView(snippet: snippet, showLyricsInitially: true)
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbarColorScheme(.dark, for: .navigationBar)
+            }
         }
         .sheet(item: $sharing) { snippet in
             ShareSheet(items: ShareItems.items(for: snippet)) { sharing = nil }
@@ -34,6 +40,9 @@ struct SnippetsScreen: View {
         List {
             ForEach(store.snippets) { snippet in
                 SnippetCard(snippet: snippet)
+                    .accessibilityIdentifier("recent-mif-\(snippet.track.id)")
+                    .onTapGesture { selected = snippet }
+                    .accessibilityAction(named: "Show lyrics") { selected = snippet }
                     .clipShape(.rect(cornerRadius: 20, style: .continuous))
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
@@ -54,7 +63,7 @@ struct SnippetsScreen: View {
                         if TelegramLink.isConfigured {
                             Button("Send in Telegram", systemImage: "paperplane") { sendToTelegram(snippet) }
                         }
-                        Button("Share…", systemImage: "square.and.arrow.up") { sharing = snippet }
+                        Button("Share…", systemImage: "square.and.arrow.up") { composer.share(snippet) }
                         if snippet.track.kind != .file {
                             Button("Make Another Snippet", systemImage: "scissors") { router.edit(snippet.track) }
                         }

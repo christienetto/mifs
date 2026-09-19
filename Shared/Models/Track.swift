@@ -29,6 +29,10 @@ nonisolated struct Track: Identifiable, Hashable, Codable, Sendable {
     /// Suggested snippet start (e.g. the chorus), when the source provides one.
     var highlightStart: TimeInterval?
 
+    /// Spotify identity to prepare when this selection opens.
+    var preparationRef: String?
+    var expectedDuration: TimeInterval?
+
     var resolvedArtworkURL: URL? {
         if let artworkFile { return AppGroup.url(for: artworkFile) }
         return artworkURL

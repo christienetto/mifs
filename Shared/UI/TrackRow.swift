@@ -3,6 +3,8 @@ import SwiftUI
 struct TrackRow: View {
     let track: Track
     var rank: Int?
+    /// Shown after the artist, e.g. where the song was found.
+    var detail: String?
 
     @State private var player = SnippetPlayer.shared
 
@@ -26,7 +28,8 @@ struct TrackRow: View {
                             .accessibilityLabel("Explicit")
                     }
                 }
-                Text(track.artist).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                Text(detail.map { "\(track.artist) · \($0)" } ?? track.artist)
+                    .font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 8)
             if let preview = track.previewURL {

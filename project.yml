@@ -47,6 +47,7 @@ targets:
           - $(MIFS_APP_GROUP)
         com.apple.developer.associated-domains:
           - applinks:$(MIFS_TELEGRAM_HOST)
+          - applinks:$(MIFS_LINK_HOST)
     info:
       path: MIFS/Info.plist
       properties:

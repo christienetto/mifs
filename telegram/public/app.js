@@ -4,9 +4,11 @@
 //   editor   — pick the moment, preview it, send it
 // Sending prepares a message on the server and hands it to Telegram's own chat picker (shareMessage).
 
-import { analyze, loadPreview, loudestWindow, SnippetPlayer, snippetLevels, unlockOnFirstGesture } from './audio.js';
-import { CatalogError, currentStorefront, lookupTrack, search, spotifySearchURL, topSongs } from './catalog.js';
+import { contrast, analyze, loadPreview, loudestWindow, SnippetPlayer, snippetLevels, unlockOnFirstGesture } from './audio.js';
+import { CatalogError, currentStorefront, lookupTrack, spotifySearchURL } from './catalog.js';
 import { clamp, clock, formatCode, LENGTHS, parseCode, WAVEFORM_BARS } from './snippet-code.js';
+
+import { api, prepareTrack, serverSearch as search, serverTopSongs as topSongs } from './mifs.js';
 
 const tg = window.Telegram?.WebApp;
 const inTelegram = Boolean(tg?.initData);
@@ -126,7 +128,7 @@ function mount(view) {
 }
 
 function frame() {
-  if (player.state === 'playing') current?.tick?.();
+  current?.tick?.();
   requestAnimationFrame(frame);
 }
 
@@ -134,6 +136,7 @@ function frame() {
 
 /// Turns the snippet into a MIFS card and lets the user pick the chat, like Messages' compose sheet.
 async function send(snippet, track) {
+  current?.pause?.();
   const code = formatCode({ ...snippet, intent: 'play' });
   if (!inTelegram) {
     notify('Open MIFS from Telegram to send snippets.');
@@ -202,6 +205,7 @@ function backToApp() {
 // MARK: - Player
 
 function playerView(snippet) {
+  if (snippet.mifId) return mifPlayerView(snippet);
   const element = html(`
     <section class="player dark">
       <div class="backdrop"><div class="backdrop-art"></div></div>
@@ -323,6 +327,63 @@ function playerView(snippet) {
   return view;
 }
 
+// Server mifs stream only their selected interval, with lyrics in original song time.
+function mifPlayerView(snippet) {
+  const element = html(`<section class="player dark"><div class="backdrop"><div class="backdrop-art"></div></div>
+    <div class="screen"><div class="art-wrap"><img class="art" alt=""></div>
+    <div class="titles"><h1>Loading song…</h1></div><div class="mif-lyrics" hidden></div>
+    <div class="controls-row"></div><p class="status"></p></div></section>`);
+  const button = playButton('big'); element.querySelector('.controls-row').append(button.element);
+  const audio = new Audio(`/api/mifs/${snippet.mifId}/audio`);
+  audio.preload = 'auto'; audio.setAttribute('playsinline', '');
+  const status = element.querySelector('.status'), art = element.querySelector('.art-wrap');
+  const lyrics = element.querySelector('.mif-lyrics');
+  let resolved = null, alive = true;
+  const view = { element, enter, leave, tick, update: tick, pause: () => audio.pause() };
+  async function play() {
+    status.textContent = '';
+    if (audio.ended || (resolved && audio.currentTime >= resolved.snippet.duration)) audio.currentTime = 0;
+    try { await audio.play(); }
+    catch { if (alive) status.textContent = 'Tap Play to listen'; }
+  }
+  button.element.onclick = () => audio.paused ? play() : audio.pause();
+  audio.onplay = tick; audio.onpause = tick; audio.ontimeupdate = tick;
+  audio.onerror = () => { if (alive) status.textContent = 'Couldn’t play this mif. Tap Play to retry.'; };
+  // Some WebViews require one gesture after opening. Retry once on that first gesture.
+  function unlock(event) { if (!event.target.closest('.play') && audio.paused && alive) play(); }
+  function enter() {
+    alive = true; paintChrome('#3d2e73'); backButton.set(null);
+    mainButton.hide();
+    element.addEventListener('pointerdown', unlock, { once: true });
+    play();
+    api(`mifs/${snippet.mifId}`).then(data => {
+      if (!alive) return;
+      resolved = data; snippet = { ...data.snippet, intent: snippet.intent };
+      element.querySelector('.titles').innerHTML = titles(data.track);
+      if (data.track.artworkURL) element.querySelector('.art').src = data.track.artworkURL;
+      lyrics.replaceChildren(...snippet.lyrics.map(line => {
+        const p = document.createElement('p'); p.textContent = line.text; return p;
+      }));
+      applyTint(element, data.track, view);
+      if (snippet.intent === 'send') mainButton.show('Send to Chat', () => send(snippet, data.track), { light: true });
+      else mainButton.show('Reply with a Mif', () => mount(browserView()), { light: true });
+      tick();
+    }).catch(error => { if (alive) status.textContent = error.message; });
+  }
+  function leave() { alive = false; audio.pause(); audio.removeAttribute('src'); audio.load(); }
+  function tick() {
+    if (!alive) return;
+    const duration = resolved?.snippet.duration ?? 0;
+    if (duration && audio.currentTime >= duration && !audio.paused) audio.pause();
+    button.render(audio.paused ? 'idle' : 'playing', duration ? clamp(audio.currentTime / duration, 0, 1) : 0);
+    const hasLyrics = Boolean(snippet.lyrics?.length);
+    lyrics.hidden = audio.paused || !hasLyrics; art.hidden = !audio.paused && hasLyrics;
+    const time = ((snippet.start ?? 0) + audio.currentTime) * 1000;
+    [...lyrics.children].forEach((p, i) => p.classList.toggle('sung', time >= snippet.lyrics[i].startMs && time < snippet.lyrics[i].endMs));
+  }
+  return view;
+}
+
 // MARK: - Browser
 
 function browserView({ onBack } = {}) {
@@ -367,10 +428,7 @@ function browserView({ onBack } = {}) {
     const row = event.target.closest('[data-id]');
     const track = row && tracks.get(row.dataset.id);
     if (!track) return;
-    if (event.target.closest('.preview')) {
-      haptics.tap();
-      player.toggle({ owner: `row-${track.id}`, url: track.previewURL, start: 0, duration: 30 });
-    } else {
+    {
       input.blur();
       call('hideKeyboard');
       mount(editorView(track, { onBack: () => mount(view) }));
@@ -394,7 +452,7 @@ function browserView({ onBack } = {}) {
     try {
       charts = await topSongs(storefront);
     } catch (error) {
-      chartsError = error instanceof CatalogError ? error.message : 'Couldn’t reach Apple Music. Check your connection and try again.';
+      chartsError = error instanceof CatalogError ? error.message : 'Couldn’t reach MIFS. Check your connection and try again.';
     }
     chartsLoading = false;
     render();
@@ -410,7 +468,7 @@ function browserView({ onBack } = {}) {
       searchError = null;
     } catch (error) {
       if (error.name === 'AbortError') return;
-      searchError = error instanceof CatalogError ? error.message : 'Couldn’t reach Apple Music. Check your connection and try again.';
+      searchError = error instanceof CatalogError ? error.message : 'Couldn’t reach MIFS. Check your connection and try again.';
     }
     searching = false;
     render();
@@ -429,8 +487,8 @@ function browserView({ onBack } = {}) {
       const intro = `
         <div class="intro">
           <h2>Send the moment, not the whole song</h2>
-          <p>${fromInline ? 'Pick a song and any 5–15 seconds of it. It goes straight back to your chat.'
-            : 'Pick a song and any 5–15 seconds of it. It plays right in the chat.'}</p>
+          <p>${fromInline ? 'Pick a song and any up to 20 seconds of it. It goes straight back to your chat.'
+            : 'Pick a song and any up to 20 seconds of it. It plays right in the chat.'}</p>
         </div>`;
       let list;
       if (charts?.length) list = `<div class="list">${charts.map((track, index) => row(track, index + 1)).join('')}</div>`;
@@ -466,7 +524,7 @@ function row(track, rank) {
           <span>${escapeHTML(track.artist)}</span>
         </span>
       </button>
-      <button class="preview" type="button" aria-label="Play preview">${icons.rowPlay}</button>
+
     </div>`;
 }
 
@@ -489,12 +547,13 @@ function editorView(track, { onBack }) {
       <div class="screen">
         <div class="art-wrap"><img class="art playing" alt=""></div>
         <div class="titles">${titles(track)}</div>
-        <div class="loading"><span class="spinner"></span><p>Loading preview…</p></div>
+        <div class="loading"><p>Your song is downloading</p><progress max="1"></progress></div>
         <div class="timeline" hidden>
           <div class="range"><span class="from"></span><strong class="length"></strong><span class="to"></span></div>
           <canvas class="scrubber" tabindex="0" role="slider" aria-label="Snippet start"></canvas>
-          <p class="hint">Drag the waveform to pick the moment · from Apple Music’s preview</p>
+          <p class="hint">Drag the waveform or its edges · up to 20 seconds</p>
         </div>
+        <div class="editor-lyrics mif-lyrics"></div>
         <div class="controls" hidden><div class="lengths" role="radiogroup" aria-label="Snippet length"></div></div>
       </div>
     </section>`);
@@ -515,6 +574,8 @@ function editorView(track, { onBack }) {
   let length = 10;
   let drag = null;
   let loaded = false;
+  let lyricLines = [];
+  let loadingController = null;
 
   const view = { element, enter, leave, update, tick };
 
@@ -538,32 +599,39 @@ function editorView(track, { onBack }) {
   }
 
   function leave() {
+    loadingController?.abort();
     call('enableVerticalSwipes');
   }
 
   async function load() {
-    loading.innerHTML = '<span class="spinner"></span><p>Loading preview…</p>';
+    loadingController?.abort(); loadingController = new AbortController();
+    loading.innerHTML = '<p>Your song is downloading</p><progress max="1"></progress>';
     try {
-      buffer = await loadPreview(track.previewURL);
-      waveform = analyze(buffer);
-      if (waveform.duration < 1) throw new Error('empty');
-    } catch {
-      loading.innerHTML = `<p>Couldn’t load this song’s preview. Check your connection and try again.</p>
-        <button class="retry" type="button">Try Again</button>`;
-      loading.querySelector('.retry').addEventListener('click', load);
-      return;
+      const prepared = await prepareTrack(track, song => {
+        const progress = loading.querySelector('progress');
+        if (song.downloadTotalBytes > 0) {
+          progress.value = clamp(song.downloadedBytes / song.downloadTotalBytes, 0, 1);
+          loading.querySelector('p').textContent = progress.value >= 1 ? 'Finishing your song…' : `Your song is downloading · ${Math.floor(progress.value * 100)}%`;
+        } else progress.removeAttribute('value');
+      }, loadingController.signal);
+      track = prepared.track;
+      waveform = { rms: prepared.waveform.rms, levels: contrast(prepared.waveform.rms), duration: prepared.waveform.durationMs / 1000 };
+      lyricLines = prepared.lyrics;
+      if (current !== view) return;
+      const panel = element.querySelector('.editor-lyrics');
+      panel.replaceChildren(...lyricLines.map(line => {
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = line.text;
+        b.onclick = () => { start = clamp(line.startMs / 1000 - 0.25, 0, maxStart()); playSelection(); update(); };
+        return b;
+      }));
+    } catch (error) {
+      if (error.name === 'AbortError') { loaded = false; return; }
+      loading.innerHTML = `<p>${escapeHTML(error.message)}</p><button class="retry" type="button">Try Again</button>`;
+      loading.querySelector('.retry').addEventListener('click', load); return;
     }
-    length = Math.min(10, waveform.duration);
-    start = loudestWindow(waveform.rms, length);
-    loading.hidden = true;
-    timeline.hidden = false;
-    controls.hidden = false;
-    renderLengths();
-    if (current === view) {
-      mainButton.enable(true);
-      playSelection();
-    }
-    update();
+    length = Math.min(10, waveform.duration); start = loudestWindow(waveform.rms, length);
+    loading.hidden = true; timeline.hidden = false; controls.hidden = false;
+    renderLengths(); mainButton.enable(true); playSelection(); update();
   }
 
   function renderLengths() {
@@ -591,7 +659,7 @@ function editorView(track, { onBack }) {
   });
 
   function playSelection() {
-    if (buffer) player.play({ owner, buffer, start, duration: length });
+    if (waveform) player.play({ owner, url: track.previewURL, start, duration: length });
   }
 
   // Drag anywhere: inside the window moves it, elsewhere centres it under the finger.
@@ -599,7 +667,9 @@ function editorView(track, { onBack }) {
     if (!waveform) return;
     const time = timeAt(event);
     const inside = time >= start && time <= start + length;
-    drag = { offset: inside ? time - start : length / 2 };
+    const tolerance = 14 * waveform.duration / scrubber.getBoundingClientRect().width;
+    const edge = Math.abs(time - start) < tolerance ? 'start' : Math.abs(time - start - length) < tolerance ? 'end' : null;
+    drag = { edge, end: start + length, start, offset: inside ? time - start : length / 2 };
     scrubber.setPointerCapture(event.pointerId);
     player.stop();
     moveTo(time);
@@ -629,20 +699,21 @@ function editorView(track, { onBack }) {
   }
 
   function moveTo(time) {
-    start = clamp(time - drag.offset, 0, maxStart());
+    if (drag.edge === 'start') { start = clamp(time, Math.max(0, drag.end - 20), drag.end - 1); length = drag.end - start; }
+    else if (drag.edge === 'end') { length = clamp(time - drag.start, 1, Math.min(20, waveform.duration - drag.start)); }
+    else start = clamp(time - drag.offset, 0, maxStart());
+    renderLengths();
     update();
   }
 
-  function sendSnippet() {
+  async function sendSnippet() {
     if (!waveform) return;
-    const snippet = {
-      trackId: track.id,
-      storefront,
-      start,
-      duration: length,
-      waveform: snippetLevels(waveform.levels, start, length, WAVEFORM_BARS),
-    };
-    send(snippet, track);
+    mainButton.busy(true);
+    try {
+      const mif = await api(`songs/${track.id}/mifs`, { body: { startMs: Math.round(start * 1000), durationMs: Math.round(length * 1000) } });
+      await send({ mifId: mif.id, start, duration: length, lyrics: mif.lyrics }, track);
+    } catch (error) { notify(error.message); }
+    finally { mainButton.busy(false); }
   }
 
   function update() {
@@ -689,6 +760,9 @@ function editorView(track, { onBack }) {
     context.lineWidth = 2.5;
     context.strokeStyle = '#ffffff';
     context.stroke();
+    context.fillStyle = '#fff';
+    roundRect(context, x - 3, height * 0.25, 6, height * 0.5, 3); context.fill();
+    roundRect(context, x + windowWidth - 3, height * 0.25, 6, height * 0.5, 3); context.fill();
 
     if (player.isActive(owner) && player.state === 'playing') {
       context.fillStyle = '#ffffff';
@@ -852,9 +926,9 @@ function escapeHTML(value) {
 tg?.ready();
 unlockOnFirstGesture();
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) player.stop();
+  if (document.hidden) { player.stop(); current?.pause?.(); }
 });
-tg?.onEvent?.('deactivated', () => player.stop());
+tg?.onEvent?.('deactivated', () => { player.stop(); current?.pause?.(); });
 
 mount(launchCode ? playerView(launchCode) : browserView());
 requestAnimationFrame(frame);

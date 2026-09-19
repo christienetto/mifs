@@ -5,6 +5,7 @@
 	<key>com.apple.developer.associated-domains</key>
 	<array>
 		<string>applinks:$(MIFS_TELEGRAM_HOST)</string>
+		<string>applinks:$(MIFS_LINK_HOST)</string>
 	</array>
 	<key>com.apple.security.application-groups</key>
 	<array>

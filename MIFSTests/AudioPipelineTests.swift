@@ -58,3 +58,23 @@ struct AudioPipelineTests {
         #expect(title == "Tone")
     }
 }
+
+struct PreviewAlignmentTests {
+    @Test func findsPreviewOffsetDespiteVolumeChange() {
+        var seed: UInt64 = 42
+        let values: [Float] = (0..<2000).map { _ in
+            seed = seed &* 6364136223846793005 &+ 1
+            return Float(seed >> 40) / Float(1 << 24) + 0.1
+        }
+        let full = Waveform(levels: values, duration: 200, rms: values)
+        let sample = Array(values[437..<737]).map { $0 * 0.6 }
+        let preview = Waveform(levels: sample, duration: 30, rms: sample)
+        #expect(full.offset(of: preview) == 43.7)
+    }
+    @Test func rejectsSilenceAndRepeatedChorus() {
+        let silence = Waveform(levels: Array(repeating: 0, count: 1000), duration: 100)
+        #expect(silence.offset(of: Waveform(levels: Array(repeating: 0, count: 100), duration: 10)) == nil)
+        let phrase: [Float] = (0..<300).map { Float(sin(Double($0) * 0.3) + 2) }
+        #expect(Waveform(levels: phrase + phrase, duration: 60).offset(of: Waveform(levels: phrase, duration: 30)) == nil)
+    }
+}

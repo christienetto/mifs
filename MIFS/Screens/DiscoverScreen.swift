@@ -15,27 +15,9 @@ struct DiscoverScreen: View {
     var body: some View {
         @Bindable var router = router
         NavigationStack(path: $router.discoverPath) {
-            CatalogBrowser(model: catalog, onSelect: open) {
-                Section {
-                    OwnMusicCard(
-                        onFiles: { isImportingFile = true },
-                        onLibrary: pickFromLibrary
-                    )
-                    .listRowInsets(EdgeInsets())
-                }
-            }
+            CatalogBrowser(model: catalog, onSelect: open) { EmptyView() }
             .navigationTitle("MIFS")
             .searchable(text: $catalog.query, prompt: "Songs or artists")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button("Audio Files", systemImage: "folder") { isImportingFile = true }
-                        Button("Music Library", systemImage: "music.note.house", action: pickFromLibrary)
-                    } label: {
-                        Label("Clip your own audio", systemImage: "plus")
-                    }
-                }
-            }
             .navigationDestination(for: Track.self) { track in
                 SnippetEditorView(track: track, destinations: composer.destinations)
                 .toolbarBackground(.hidden, for: .navigationBar)
@@ -144,46 +126,4 @@ private struct Notice {
     var message: String
     var continueWith: Track?
     var offersSettings = false
-}
-
-private struct OwnMusicCard: View {
-    let onFiles: () -> Void
-    let onLibrary: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                Label("Clip songs you own", systemImage: "waveform.badge.plus")
-                    .font(.headline)
-                Text("Pick any 5–15 seconds of audio files or DRM-free library songs and send it as audio.")
-                    .font(.subheadline)
-                    .opacity(0.85)
-            }
-            HStack(spacing: 10) {
-                CardButton(title: "Files", symbol: "folder.fill", action: onFiles)
-                CardButton(title: "Music Library", symbol: "music.note.house.fill", action: onLibrary)
-            }
-        }
-        .foregroundStyle(.white)
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.brandGradient)
-    }
-}
-
-private struct CardButton: View {
-    let title: String
-    let symbol: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Label(title, systemImage: symbol)
-                .font(.subheadline.weight(.semibold))
-                .frame(maxWidth: .infinity, minHeight: 40)
-                .background(.white.opacity(0.22), in: .capsule)
-        }
-        .buttonStyle(.borderless)
-        .foregroundStyle(.white)
-    }
 }

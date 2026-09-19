@@ -1,6 +1,6 @@
 // Command mifs-server serves the MIFS song catalog and imports songs into it.
 //
-//	mifs-server serve               start the HTTP API (default)
+//	mifs-server serve               start the HTTP API and ingestion workers (default)
 //	mifs-server ingest <dir>...     import song folders (see internal/ingest)
 //
 // Configuration comes from flags or MIFS_* environment variables; run with -h for details.
@@ -14,15 +14,21 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/christienetto/mifs/server/internal/api"
+	"github.com/christienetto/mifs/server/internal/audio"
 	"github.com/christienetto/mifs/server/internal/blob"
 	"github.com/christienetto/mifs/server/internal/catalog"
+	"github.com/christienetto/mifs/server/internal/clip"
+	"github.com/christienetto/mifs/server/internal/discovery"
 	"github.com/christienetto/mifs/server/internal/ingest"
+	"github.com/christienetto/mifs/server/internal/lyrics"
 )
 
 func main() {
@@ -67,6 +73,13 @@ func serve(logger *slog.Logger, args []string) error {
 	data := flags.String("data", env("MIFS_DATA_DIR", "data"), "directory holding mifs.db and media/ (MIFS_DATA_DIR)")
 	publicURL := flags.String("public-url", env("MIFS_PUBLIC_URL", ""), "external origin, e.g. https://api.example.com; default: the request's host (MIFS_PUBLIC_URL)")
 	mediaURL := flags.String("media-url", env("MIFS_MEDIA_URL", ""), "base URL media is published at, e.g. a CDN; default: <public-url>/media (MIFS_MEDIA_URL)")
+	ffmpeg := flags.String("ffmpeg", env("MIFS_FFMPEG", "ffmpeg"), "ffmpeg binary, for mifs and ingestion (MIFS_FFMPEG)")
+	ffprobe := flags.String("ffprobe", env("MIFS_FFPROBE", "ffprobe"), "ffprobe binary (MIFS_FFPROBE)")
+	workers := flags.Int("workers", envInt("MIFS_WORKERS", 2), "songs ingested at once; 0 disables ingestion here (MIFS_WORKERS)")
+	discoveryNames := flags.String("discovery", env("MIFS_DISCOVERY", "spotify"), "discovery providers to search, in order; spotify needs MIFS_SPOTIFY_CLIENT_ID/SECRET (MIFS_DISCOVERY)")
+	lyricsNames := flags.String("lyrics", env("MIFS_LYRICS", "lrclib"), "synced lyrics providers, in order (MIFS_LYRICS)")
+	libraryDir := flags.String("library", env("MIFS_LIBRARY_DIR", ""), "audio source: a folder of audio files you own (MIFS_LIBRARY_DIR)")
+	audioCommand := flags.String("audio-command", env("MIFS_AUDIO_COMMAND", ""), "audio source: a shell command that fetches a song's audio (MIFS_AUDIO_COMMAND; see internal/audio/command.go)")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -76,15 +89,65 @@ func serve(logger *slog.Logger, args []string) error {
 		return err
 	}
 	defer store.Close()
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	providers, err := discoveryProviders(*discoveryNames, logger)
+	if err != nil {
+		return err
+	}
+	lyricProviders, err := lyricsProviders(*lyricsNames)
+	if err != nil {
+		return err
+	}
+	var sources []audio.Source
+	if *libraryDir != "" {
+		library := &audio.Library{Dir: *libraryDir, FFprobe: *ffprobe, IndexPath: filepath.Join(*data, "library-index.json"), Logger: logger}
+		go func() {
+			if err := library.Refresh(ctx); err != nil {
+				logger.Error("library scan failed", "dir", *libraryDir, "err", err)
+			}
+		}()
+		sources = append(sources, library)
+	}
+	if *audioCommand != "" {
+		sources = append(sources, &audio.Command{Script: *audioCommand})
+	}
+	if *audioCommand == "" {
+		defaultBinary := "spotdl"
+		if info, err := os.Stat(".venv/bin/spotdl"); err == nil && !info.IsDir() {
+			defaultBinary = ".venv/bin/spotdl"
+		}
+		binary := env("MIFS_SPOTDL", defaultBinary)
+		if _, err := exec.LookPath(binary); err != nil {
+			logger.Warn("spotdl not installed: new Spotify songs cannot be downloaded", "binary", binary)
+		}
+		sources = append(sources, &audio.SpotDL{Binary: binary})
+	}
+	if _, err := exec.LookPath(*ffmpeg); err != nil {
+		logger.Warn("ffmpeg not found: making mifs and ingesting songs will fail", "ffmpeg", *ffmpeg)
+	}
+
+	worker := &ingest.Worker{
+		Ingester:    &ingest.Ingester{Store: store, Blobs: blobs, FFmpeg: *ffmpeg, FFprobe: *ffprobe},
+		Sources:     sources,
+		Lyrics:      lyricProviders,
+		Discovery:   providers,
+		Logger:      logger,
+		Concurrency: *workers,
+	}
 	handler, err := api.New(api.Config{
 		Store: store, MediaDir: blobs.Dir(), PublicURL: *publicURL, MediaURL: *mediaURL, Logger: logger,
+		Discovery: providers,
+		IOSAppID:  env("MIFS_IOS_APP_ID", ""),
+		Clips:     &clip.Renderer{Blobs: blobs, FFmpeg: *ffmpeg},
+		Notify:    worker.Notify,
 	})
 	if err != nil {
 		return err
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	count, err := store.Count(ctx)
 	if err != nil {
 		return err
@@ -92,6 +155,10 @@ func serve(logger *slog.Logger, args []string) error {
 	if count == 0 {
 		logger.Warn("catalog is empty; import songs with: mifs-server ingest seed")
 	}
+	if *workers > 0 {
+		go worker.Run(ctx)
+	}
+	logger.Info("sources", "discovery", names(providers), "lyrics", names(lyricProviders), "audio", names(sources), "workers", *workers)
 
 	server := &http.Server{
 		Addr:              *addr,
@@ -112,6 +179,68 @@ func serve(logger *slog.Logger, args []string) error {
 	shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return server.Shutdown(shutdown)
+}
+
+func envInt(key string, fallback int) int {
+	var n int
+	if _, err := fmt.Sscan(env(key, ""), &n); err != nil {
+		return fallback
+	}
+	return n
+}
+
+func list(value string) []string {
+	var out []string
+	for _, name := range strings.Split(value, ",") {
+		if name = strings.TrimSpace(name); name != "" {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+func discoveryProviders(value string, logger *slog.Logger) ([]discovery.Provider, error) {
+	var providers []discovery.Provider
+	for _, name := range list(value) {
+		switch name {
+		case "deezer":
+			providers = append(providers, &discovery.Deezer{})
+		case "spotify":
+			id, secret := env("MIFS_SPOTIFY_CLIENT_ID", ""), env("MIFS_SPOTIFY_CLIENT_SECRET", "")
+			if id == "" || secret == "" {
+				logger.Info("spotify discovery off: set MIFS_SPOTIFY_CLIENT_ID and MIFS_SPOTIFY_CLIENT_SECRET to enable it")
+				continue
+			}
+			providers = append(providers, &discovery.Spotify{ClientID: id, ClientSecret: secret, Market: env("MIFS_SPOTIFY_MARKET", "")})
+		default:
+			return nil, fmt.Errorf("unknown discovery provider %q (have: spotify, deezer)", name)
+		}
+	}
+	return providers, nil
+}
+
+func lyricsProviders(value string) ([]lyrics.Provider, error) {
+	var providers []lyrics.Provider
+	for _, name := range list(value) {
+		switch name {
+		case "lrclib":
+			providers = append(providers, &lyrics.LRCLIB{})
+		default:
+			return nil, fmt.Errorf("unknown lyrics provider %q (have: lrclib)", name)
+		}
+	}
+	return providers, nil
+}
+
+func names[T interface{ Name() string }](items []T) string {
+	var out []string
+	for _, item := range items {
+		out = append(out, item.Name())
+	}
+	if len(out) == 0 {
+		return "none"
+	}
+	return strings.Join(out, ",")
 }
 
 func importSongs(logger *slog.Logger, args []string) error {

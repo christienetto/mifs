@@ -6,134 +6,13 @@ struct ExtensionRootView: View {
     var body: some View {
         switch state.screen {
         case .received(let snippet):
-            ReceivedSnippetView(snippet: snippet, state: state)
+            VStack {
+                SnippetPlaybackView(snippet: snippet)
+                Button("Reply with a Mif") { state.screen = .browse }.padding()
+            }
         case .browse:
             ComposeHomeView(state: state)
         }
-    }
-}
-
-// MARK: - Recipient
-
-private struct ReceivedSnippetView: View {
-    let snippet: Snippet
-    let state: ExtensionState
-
-    @State private var player = SnippetPlayer.shared
-
-    private var id: String { snippet.id.uuidString }
-
-    var body: some View {
-        let active = player.isActive(id)
-        ZStack {
-            ArtworkBackdrop(url: snippet.track.artworkURL)
-            VStack(spacing: 22) {
-                ArtworkView(url: snippet.track.artworkURL, cornerRadius: 20)
-                    .frame(maxWidth: 300, maxHeight: 300)
-                    .shadow(color: .black.opacity(0.4), radius: 28, y: 14)
-                    .scaleEffect(player.isPlaying(id) ? 1 : 0.94)
-                    .animation(.spring(duration: 0.5, bounce: 0.3), value: player.isPlaying(id))
-                    .frame(maxHeight: .infinity)
-
-                VStack(spacing: 4) {
-                    Text(snippet.track.title).font(.title2.weight(.bold)).multilineTextAlignment(.center).lineLimit(2)
-                    Text(snippet.track.artist).font(.body).opacity(0.75).lineLimit(1)
-                }
-
-                if let lyrics = snippet.lyrics, !lyrics.isEmpty {
-                    LyricsExcerpt(lines: lyrics, playhead: active ? snippet.start + player.progress * snippet.duration : nil)
-                }
-
-                VStack(spacing: 8) {
-                    WaveformBars(levels: snippet.waveform, progress: active ? player.progress : 0, spacing: 3)
-                        .frame(height: 44)
-                    HStack {
-                        Text((active ? player.progress * snippet.duration : 0).clock)
-                        Spacer()
-                        Text(snippet.duration.clock)
-                    }
-                    .font(.caption.monospacedDigit())
-                    .opacity(0.7)
-                }
-
-                PlayButton(state: active ? player.state : .idle, progress: active ? player.progress : 0, size: 72) {
-                    Haptics.tap()
-                    play()
-                }
-
-                if let error = player.lastError, !active {
-                    Text(error).font(.footnote).opacity(0.8)
-                }
-
-                HStack(spacing: 10) {
-                    if let appleMusic = snippet.track.appleMusicURL {
-                        ListenButton(title: "Apple Music", symbol: "music.note") { state.open(appleMusic) }
-                    }
-                    // MIFS server songs aren't on streaming services.
-                    if snippet.track.kind != .server, let spotify = snippet.track.spotifySearchURL {
-                        ListenButton(title: "Spotify", symbol: "headphones") { state.open(spotify) }
-                    }
-                }
-
-                Button {
-                    player.stop()
-                    state.screen = .browse
-                } label: {
-                    Label("Reply with a Snippet", systemImage: "arrowshape.turn.up.left.fill")
-                        .font(.subheadline.weight(.semibold))
-                }
-                .buttonStyle(.plain)
-                .opacity(0.9)
-            }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 16)
-        }
-        .foregroundStyle(.white)
-        .environment(\.colorScheme, .dark)
-        .onAppear(perform: play)
-        .onDisappear { player.stop() }
-    }
-
-    private func play() {
-        guard let playback = snippet.playback else { return }
-        player.toggle(id: id, url: playback.url, start: playback.start, duration: playback.duration)
-    }
-}
-
-/// The lyrics a snippet contains, lit line by line as it plays.
-private struct LyricsExcerpt: View {
-    let lines: [LyricLine]
-    let playhead: TimeInterval?
-
-    var body: some View {
-        let sung = playhead.flatMap { lines.index(at: $0) }
-        VStack(spacing: 6) {
-            ForEach(lines.indices, id: \.self) { index in
-                Text(lines[index].text)
-                    .font(.headline)
-                    .multilineTextAlignment(.center)
-                    .opacity(sung == nil ? 0.85 : sung == index ? 1 : 0.4)
-            }
-        }
-        .animation(.smooth(duration: 0.25), value: sung)
-        .accessibilityElement(children: .combine)
-    }
-}
-
-private struct ListenButton: View {
-    let title: String
-    let symbol: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Label(title, systemImage: symbol)
-                .font(.subheadline.weight(.semibold))
-                .frame(maxWidth: .infinity, minHeight: 44)
-                .background(.white.opacity(0.16), in: .capsule)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Open in \(title)")
     }
 }
 
@@ -149,23 +28,15 @@ private struct ComposeHomeView: View {
         NavigationStack(path: $state.path) {
             CatalogBrowser(model: state.catalog, onSelect: select) {
                 if !store.snippets.isEmpty {
-                    Section("Your Snippets") {
+                    Section("Recent") {
                         RecentSnippetsStrip(snippets: Array(store.snippets.prefix(20))) { snippet in
-                            Task { try? await state.send(snippet) }
+                            state.screen = .received(snippet)
                         }
                         .listRowInsets(EdgeInsets())
                         .listRowBackground(Color.clear)
                     }
                 }
-                Section {
-                    Button {
-                        if let url = URL(string: "mifs://import") { state.open(url) }
-                    } label: {
-                        Label("Clip a song you own", systemImage: "waveform.badge.plus")
-                    }
-                } footer: {
-                    Text("Opens MIFS to clip any part of audio files or DRM-free songs on your iPhone.")
-                }
+
             }
             .navigationTitle("MIFS")
             .navigationBarTitleDisplayMode(.inline)
@@ -173,7 +44,7 @@ private struct ComposeHomeView: View {
             .searchFocused($searchFocused)
             .onChange(of: searchFocused) { _, focused in if focused { state.expand() } }
             .navigationDestination(for: Track.self) { track in
-                SnippetEditorView(track: track, sendTitle: "Add to Message", onSend: state.send)
+                SnippetEditorView(track: track, sendTitle: "Share", onSend: state.send)
                     .toolbarBackground(.hidden, for: .navigationBar)
             }
         }

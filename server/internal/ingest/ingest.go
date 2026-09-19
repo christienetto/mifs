@@ -7,7 +7,11 @@
 //
 // Audio is normalised to AAC in MP4 with the index up front (so clients can stream and
 // seek with range requests), a loudness envelope is precomputed for the timeline, and
-// artwork is rendered at full and thumbnail size. Only ingest needs ffmpeg; serving does not.
+// artwork is rendered at full and thumbnail size.
+//
+// The same pipeline processes songs requested through discovery: Worker takes pending
+// songs from the catalog, gets their audio from an audio.Source and their lyrics from a
+// lyrics.Provider, and makes them ready.
 package ingest
 
 import (
@@ -30,6 +34,7 @@ import (
 	"github.com/christienetto/mifs/server/internal/blob"
 	"github.com/christienetto/mifs/server/internal/catalog"
 	"github.com/christienetto/mifs/server/internal/lrc"
+	"github.com/christienetto/mifs/server/internal/lyrics"
 )
 
 const (
@@ -39,13 +44,12 @@ const (
 	artworkSize     = 1200
 	thumbnailSize   = 300
 	audioBitrate    = "256k"
-	// A final lyric line without an explicit end marker is shown for at most this long.
-	maxLastLineMs = 8000
 )
 
 // Manifest is song.json.
 type Manifest struct {
 	ID          string `json:"id"`
+	ISRC        string `json:"isrc"` // optional; links the song to providers' copies of it
 	Title       string `json:"title"`
 	Artist      string `json:"artist"`
 	Album       string `json:"album"`
@@ -112,6 +116,8 @@ func (in *Ingester) Ingest(ctx context.Context, dir string) (catalog.Song, error
 
 	song := catalog.Song{
 		ID:               manifest.ID,
+		ISRC:             manifest.ISRC,
+		AudioSource:      "manual",
 		Title:            manifest.Title,
 		Artist:           manifest.Artist,
 		Album:            manifest.Album,
@@ -127,35 +133,17 @@ func (in *Ingester) Ingest(ctx context.Context, dir string) (catalog.Song, error
 	}
 
 	// Audio.
-	audio := filepath.Join(work, "audio.m4a")
-	if err := in.transcode(ctx, filepath.Join(dir, manifest.Audio), audio); err != nil {
-		return catalog.Song{}, err
-	}
-	info, err := in.probe(ctx, audio)
+	rms, err := in.processAudio(ctx, filepath.Join(dir, manifest.Audio), work, &song)
 	if err != nil {
-		return catalog.Song{}, err
-	}
-	song.DurationMs = int64(math.Round(info.duration * 1000))
-	song.AudioBitrate = info.bitrate
-	if song.AudioKey, song.AudioBytes, err = in.Blobs.Put(audio, "audio", "m4a"); err != nil {
 		return catalog.Song{}, err
 	}
 	if manifest.HighlightStart != nil {
 		song.HighlightStartMs = min(max(0, int64(*manifest.HighlightStart*1000)), song.DurationMs)
 	}
 
-	rms, err := in.waveform(ctx, audio)
-	if err != nil {
-		return catalog.Song{}, err
-	}
-
 	// Artwork.
 	if manifest.Artwork != "" {
-		src := filepath.Join(dir, manifest.Artwork)
-		if song.ArtworkKey, err = in.artwork(ctx, src, work, artworkSize); err != nil {
-			return catalog.Song{}, err
-		}
-		if song.ThumbnailKey, err = in.artwork(ctx, src, work, thumbnailSize); err != nil {
+		if err := in.processArtwork(ctx, filepath.Join(dir, manifest.Artwork), work, &song); err != nil {
 			return catalog.Song{}, err
 		}
 	}
@@ -230,6 +218,41 @@ func readManifest(dir string) (Manifest, error) {
 		return manifest, fmt.Errorf("%s/song.json: %s", dir, strings.Join(problems, "; "))
 	}
 	return manifest, nil
+}
+
+// processAudio transcodes src into the blob store and fills in the song's audio fields,
+// returning its waveform.
+func (in *Ingester) processAudio(ctx context.Context, src, work string, song *catalog.Song) ([]float32, error) {
+	audio := filepath.Join(work, "audio.m4a")
+	if err := in.transcode(ctx, src, audio); err != nil {
+		return nil, err
+	}
+	info, err := in.probe(ctx, audio)
+	if err != nil {
+		return nil, err
+	}
+	song.DurationMs = int64(math.Round(info.duration * 1000))
+	song.AudioBitrate = info.bitrate
+	song.AudioContentType = "audio/mp4"
+	if song.AudioKey, song.AudioBytes, err = in.Blobs.Put(audio, "audio", "m4a"); err != nil {
+		return nil, err
+	}
+	return in.waveform(ctx, audio)
+}
+
+// processArtwork renders src (any image, or an audio file with an embedded picture) at
+// full and thumbnail size into the blob store.
+func (in *Ingester) processArtwork(ctx context.Context, src, work string, song *catalog.Song) error {
+	full, err := in.artwork(ctx, src, work, artworkSize)
+	if err != nil {
+		return err
+	}
+	thumbnail, err := in.artwork(ctx, src, work, thumbnailSize)
+	if err != nil {
+		return err
+	}
+	song.ArtworkKey, song.ThumbnailKey = full, thumbnail
+	return nil
 }
 
 func (in *Ingester) transcode(ctx context.Context, src, dest string) error {
@@ -341,7 +364,7 @@ func roundSignificant(value float64) float32 {
 func (in *Ingester) artwork(ctx context.Context, src, work string, size int) (string, error) {
 	dest := filepath.Join(work, fmt.Sprintf("artwork-%d.jpg", size))
 	filter := fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=increase:flags=lanczos,crop=%d:%d", size, size, size, size)
-	if _, err := run(ctx, in.FFmpeg, "-v", "error", "-y", "-i", src, "-vf", filter, "-frames:v", "1", "-update", "1",
+	if _, err := run(ctx, in.FFmpeg, "-v", "error", "-y", "-i", src, "-map", "0:v:0", "-vf", filter, "-frames:v", "1", "-update", "1",
 		"-q:v", "3", "-fflags", "+bitexact", "-flags:v", "+bitexact", dest); err != nil {
 		return "", err
 	}
@@ -349,8 +372,8 @@ func (in *Ingester) artwork(ctx context.Context, src, work string, size int) (st
 	return key, err
 }
 
-// readLyrics converts LRC entries to lines with explicit ends: the next entry's time
-// (an empty entry marks the end of a line), or for the final line a short hold.
+// readLyrics converts an LRC file to lines with explicit ends (see lyrics.Lines). Unlike
+// lyrics from a provider, a hand-made file must fit its audio exactly.
 func readLyrics(path string, durationMs int64) ([]catalog.LyricLine, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -361,22 +384,12 @@ func readLyrics(path string, durationMs int64) ([]catalog.LyricLine, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
-
-	var lines []catalog.LyricLine
-	for i, entry := range parsed.Lines {
-		if entry.Text == "" {
-			continue
-		}
-		start := entry.Time.Milliseconds()
-		if start >= durationMs {
+	for _, entry := range parsed.Lines {
+		if entry.Text != "" && entry.Time.Milliseconds() >= durationMs {
 			return nil, fmt.Errorf("%s: line %q starts at %s, after the audio ends", path, entry.Text, entry.Time)
 		}
-		end := min(durationMs, start+maxLastLineMs)
-		if i+1 < len(parsed.Lines) {
-			end = min(durationMs, parsed.Lines[i+1].Time.Milliseconds())
-		}
-		lines = append(lines, catalog.LyricLine{StartMs: start, EndMs: end, Text: entry.Text})
 	}
+	lines := lyrics.Lines(parsed.Lines, durationMs)
 	if len(lines) == 0 {
 		return nil, fmt.Errorf("%s has no timestamped lyric lines", path)
 	}
