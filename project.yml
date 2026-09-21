@@ -1,7 +1,7 @@
 name: MIFS
 
 options:
-  bundleIdPrefix: dev.kuchta
+  bundleIdPrefix: fi.cgn
   deploymentTarget:
     iOS: "18.0"
   createIntermediateGroups: true
@@ -15,15 +15,15 @@ configFiles:
 settings:
   base:
     MARKETING_VERSION: "1.0.0"
-    CURRENT_PROJECT_VERSION: "1"
-    DEVELOPMENT_TEAM: DRM6RX29P7
+    CURRENT_PROJECT_VERSION: "2"
+    DEVELOPMENT_TEAM: VKNG7T32BD
     SWIFT_VERSION: "6.0"
     SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
     SWIFT_APPROACHABLE_CONCURRENCY: YES
     TARGETED_DEVICE_FAMILY: "1,2"
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     CODE_SIGN_STYLE: Automatic
-    MIFS_APP_GROUP: group.dev.kuchta.mifs
+    MIFS_APP_GROUP: group.fi.cgn.mifs
     # Telegram bot whose Main Mini App is MIFS (see telegram/README.md). Empty hides Telegram sending.
     MIFS_TELEGRAM_BOT: MIFSAppBot
     # Host of the MIFS Telegram server (telegram/); its /app/… links open this app after a Telegram send.
@@ -63,7 +63,7 @@ targets:
         MIFSTelegramHost: $(MIFS_TELEGRAM_HOST)
         ITSAppUsesNonExemptEncryption: false
         CFBundleURLTypes:
-          - CFBundleURLName: dev.kuchta.mifs
+          - CFBundleURLName: fi.cgn.mifs
             CFBundleURLSchemes: [mifs]
         LSApplicationQueriesSchemes: [tg]
         NSAppleMusicUsageDescription: MIFS reads songs you own in your music library so you can clip and send them.
@@ -79,12 +79,12 @@ targets:
           - UIInterfaceOrientationLandscapeRight
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.kuchta.mifs
+        PRODUCT_BUNDLE_IDENTIFIER: fi.cgn.mifs
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
 
   MIFSMessages:
-    type: app-extension
+    type: app-extension.messages
     platform: iOS
     sources:
       - path: MIFSMessages
@@ -110,7 +110,7 @@ targets:
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).MessagesViewController
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.kuchta.mifs.messages
+        PRODUCT_BUNDLE_IDENTIFIER: fi.cgn.mifs.messages
         ASSETCATALOG_COMPILER_APPICON_NAME: "iMessage App Icon"
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
 
@@ -123,7 +123,7 @@ targets:
       - target: MIFS
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.kuchta.mifs.tests
+        PRODUCT_BUNDLE_IDENTIFIER: fi.cgn.mifs.tests
         GENERATE_INFOPLIST_FILE: YES
         TEST_HOST: $(BUILT_PRODUCTS_DIR)/MIFS.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/MIFS
         BUNDLE_LOADER: $(TEST_HOST)
@@ -137,7 +137,7 @@ targets:
       - target: MIFS
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.kuchta.mifs.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: fi.cgn.mifs.uitests
         GENERATE_INFOPLIST_FILE: YES
         SWIFT_VERSION: "5.0"
         SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated

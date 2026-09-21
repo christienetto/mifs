@@ -12,7 +12,7 @@ binding = "ASSETS"
 BOT_USERNAME = "MIFSAppBot"
 MIFS_SERVER_URL = "https://mifs.cgn.fi"
 # <Team ID>.<bundle ID> of the MIFS iOS app, for universal links back into it (see ../project.yml).
-APPLE_APP_ID = "DRM6RX29P7.dev.kuchta.mifs"
+APPLE_APP_ID = "VKNG7T32BD.fi.cgn.mifs"
 
 # Secrets, kept in .dev.vars (git-ignored; read by `wrangler dev`, uploaded with `npx wrangler@4 secret bulk .dev.vars`):
 #   BOT_TOKEN       from @BotFather

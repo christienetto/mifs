@@ -16,6 +16,7 @@
 		15508CD88B6DAE696BB3AB83 /* MessageFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF1E4E04C1FE450B2B6F99B6 /* MessageFactory.swift */; };
 		1AB895FBFF4C20D5D6ABDE19 /* Snippet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74D4BD883C838C6DB89E3C1B /* Snippet.swift */; };
 		1CCA2D768422BEE2950E701E /* LyricsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC43E038AEF348B47F82726B /* LyricsPanel.swift */; };
+		2273FCF480410738D813A168 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 5DC92739914DBFD11E3540F6 /* PrivacyInfo.xcprivacy */; };
 		25AD1C72A2C98FAAC23FFCC3 /* MusicServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1ED792FB31D1867C9B57542 /* MusicServer.swift */; };
 		2691D5C8FA232BE3684F6465 /* LyricsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC43E038AEF348B47F82726B /* LyricsPanel.swift */; };
 		2945612270754CF325452A53 /* PreviewCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93043542B00AE7BC8F89380E /* PreviewCache.swift */; };
@@ -50,6 +51,7 @@
 		9A614557652FBDDD3807CC01 /* Track.swift in Sources */ = {isa = PBXBuildFile; fileRef = F99FB7F6E00B3A0EC1E54315 /* Track.swift */; };
 		9B30A0A89ADCDCAD96806164 /* Track.swift in Sources */ = {isa = PBXBuildFile; fileRef = F99FB7F6E00B3A0EC1E54315 /* Track.swift */; };
 		9EF68134C85B05A9F4871460 /* LyricLine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19886CD5C2B36694B3A15CE4 /* LyricLine.swift */; };
+		A29BD7DBC611AA64CE4891CD /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 5DC92739914DBFD11E3540F6 /* PrivacyInfo.xcprivacy */; };
 		A80C64F44B8DD7A67FF73390 /* TrackRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 774302E19A3AAF7A29E75CE8 /* TrackRow.swift */; };
 		A85545204883D25F4792CD66 /* SnippetLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 005A2C8BBB92FA91281F86FB /* SnippetLink.swift */; };
 		AAA272F40396F4441ECF57D0 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39135E3F89F837C6151E5FE0 /* Theme.swift */; };
@@ -130,6 +132,7 @@
 		4869856C04C54CA117E798ED /* TelegramLinkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelegramLinkTests.swift; sourceTree = "<group>"; };
 		520B57E5A6CFBCD99ADAE626 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		58971950A7CFF8C5744E48F8 /* MIFSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIFSApp.swift; sourceTree = "<group>"; };
+		5DC92739914DBFD11E3540F6 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		620EA9CEF24B15E902AE4C25 /* MIFS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MIFS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		67BF5B44F5721B25870DED93 /* CatalogService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogService.swift; sourceTree = "<group>"; };
 		74D4BD883C838C6DB89E3C1B /* Snippet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Snippet.swift; sourceTree = "<group>"; };
@@ -202,6 +205,7 @@
 		49CE6D4E654C274C44E4F9DC /* Shared */ = {
 			isa = PBXGroup;
 			children = (
+				5DC92739914DBFD11E3540F6 /* PrivacyInfo.xcprivacy */,
 				5F9616F2389B50B0CDDC4025 /* Audio */,
 				5FC2B7479377BBF11287DD74 /* Editor */,
 				C0661D2DD0CCD4CD2679FDA7 /* Messages */,
@@ -411,7 +415,7 @@
 			);
 			productName = MIFSMessages;
 			productReference = A5C17745AE8CC25514B2E4F0 /* MIFSMessages.appex */;
-			productType = "com.apple.product-type.app-extension";
+			productType = "com.apple.product-type.app-extension.messages";
 		};
 		8915B94F5DBE852DDBF27D7D /* MIFSUITests */ = {
 			isa = PBXNativeTarget;
@@ -459,20 +463,20 @@
 				LastUpgradeCheck = 2600;
 				TargetAttributes = {
 					5606479CC06031BAD3947EC8 = {
-						DevelopmentTeam = DRM6RX29P7;
+						DevelopmentTeam = VKNG7T32BD;
 						ProvisioningStyle = Automatic;
 					};
 					65AA97D32F2C160D3A7D33CA = {
-						DevelopmentTeam = DRM6RX29P7;
+						DevelopmentTeam = VKNG7T32BD;
 						ProvisioningStyle = Automatic;
 					};
 					8915B94F5DBE852DDBF27D7D = {
-						DevelopmentTeam = DRM6RX29P7;
+						DevelopmentTeam = VKNG7T32BD;
 						ProvisioningStyle = Automatic;
 						TestTargetID = 5606479CC06031BAD3947EC8;
 					};
 					B9673190F248A1F39B491646 = {
-						DevelopmentTeam = DRM6RX29P7;
+						DevelopmentTeam = VKNG7T32BD;
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -505,6 +509,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				10A1B3173CC240CB5CCF589A /* Assets.xcassets in Resources */,
+				2273FCF480410738D813A168 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -513,6 +518,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				CC7EB3234A714AF60BC02D98 /* Assets.xcassets in Resources */,
+				A29BD7DBC611AA64CE4891CD /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -644,7 +650,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.kuchta.mifs.messages;
+				PRODUCT_BUNDLE_IDENTIFIER = fi.cgn.mifs.messages;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -662,7 +668,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.kuchta.mifs;
+				PRODUCT_BUNDLE_IDENTIFIER = fi.cgn.mifs;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -678,7 +684,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.kuchta.mifs.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = fi.cgn.mifs.tests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MIFS.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/MIFS";
@@ -695,7 +701,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.kuchta.mifs.uitests;
+				PRODUCT_BUNDLE_IDENTIFIER = fi.cgn.mifs.uitests;
 				SDKROOT = iphoneos;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
 				SWIFT_VERSION = 5.0;
@@ -716,7 +722,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.kuchta.mifs.messages;
+				PRODUCT_BUNDLE_IDENTIFIER = fi.cgn.mifs.messages;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -732,7 +738,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.kuchta.mifs.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = fi.cgn.mifs.tests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MIFS.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/MIFS";
@@ -751,7 +757,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.kuchta.mifs;
+				PRODUCT_BUNDLE_IDENTIFIER = fi.cgn.mifs;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -767,7 +773,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.kuchta.mifs.uitests;
+				PRODUCT_BUNDLE_IDENTIFIER = fi.cgn.mifs.uitests;
 				SDKROOT = iphoneos;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
 				SWIFT_VERSION = 5.0;
@@ -812,9 +818,9 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = DRM6RX29P7;
+				DEVELOPMENT_TEAM = VKNG7T32BD;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -828,7 +834,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MARKETING_VERSION = 1.0.0;
-				MIFS_APP_GROUP = group.dev.kuchta.mifs;
+				MIFS_APP_GROUP = group.fi.cgn.mifs;
 				MIFS_TELEGRAM_BOT = MIFSAppBot;
 				MIFS_TELEGRAM_HOST = "mifs-telegram.mifs-telegram.workers.dev";
 				MTL_ENABLE_DEBUG_INFO = NO;
@@ -880,9 +886,9 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = DRM6RX29P7;
+				DEVELOPMENT_TEAM = VKNG7T32BD;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -902,7 +908,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MARKETING_VERSION = 1.0.0;
-				MIFS_APP_GROUP = group.dev.kuchta.mifs;
+				MIFS_APP_GROUP = group.fi.cgn.mifs;
 				MIFS_TELEGRAM_BOT = MIFSAppBot;
 				MIFS_TELEGRAM_HOST = "mifs-telegram.mifs-telegram.workers.dev";
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;

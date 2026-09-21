@@ -26,5 +26,5 @@ nonisolated enum AppGroup {
 }
 
 extension Logger {
-    nonisolated static let mifs = Logger(subsystem: "dev.kuchta.mifs", category: "MIFS")
+    nonisolated static let mifs = Logger(subsystem: "fi.cgn.mifs", category: "MIFS")
 }

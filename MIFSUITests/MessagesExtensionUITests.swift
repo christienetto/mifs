@@ -32,7 +32,7 @@ final class MessagesExtensionUITests: XCTestCase {
         sleep(2)
         dump(messages, "messages-2")
 
-        let mifs = messages.cells.matching(NSPredicate(format: "identifier CONTAINS 'dev.kuchta.mifs'")).firstMatch
+        let mifs = messages.cells.matching(NSPredicate(format: "identifier CONTAINS 'fi.cgn.mifs'")).firstMatch
         for _ in 0..<4 where !mifs.isHittable {
             messages.cells.firstMatch.swipeUp()
             sleep(1)

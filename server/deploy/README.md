@@ -165,7 +165,7 @@ Check public HTTPS `/healthz`, `/v1/songs`, song waveforms/lyrics, and create/pl
 a demo song. Verify returned media/share URLs start with `https://mifs.cgn.fi`. Confirm audio
 range requests work. Restart the service and confirm catalog and mif metadata persist.
 Check `/.well-known/apple-app-site-association`; the Quadlet uses the checked-in signing
-identity `DRM6RX29P7.dev.kuchta.mifs`. Update it if the Apple team or bundle ID changes.
+identity `VKNG7T32BD.fi.cgn.mifs`. Update it if the Apple team or bundle ID changes.
 
 Both mobile apps use the HTTPS origin by default. Existing Android Settings overrides survive
 an upgrade and must be changed manually. iOS local build settings and launch arguments can

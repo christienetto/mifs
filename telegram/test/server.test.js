@@ -219,11 +219,11 @@ test('replies to the webhook with the Bot API call', async () => {
 test('lets the MIFS iOS app claim /app/ links', async () => {
   const response = await worker.fetch(
     new Request('https://mifs.example/.well-known/apple-app-site-association'),
-    { ...env, APPLE_APP_ID: 'TEAM123.dev.kuchta.mifs' },
+    { ...env, APPLE_APP_ID: 'TEAM123.fi.cgn.mifs' },
   );
   assert.equal(response.headers.get('content-type'), 'application/json; charset=utf-8');
   const [details] = (await response.json()).applinks.details;
-  assert.deepEqual(details.appIDs, ['TEAM123.dev.kuchta.mifs']);
+  assert.deepEqual(details.appIDs, ['TEAM123.fi.cgn.mifs']);
   assert.equal(details.components[0]['/'], '/app/*');
 });
 
