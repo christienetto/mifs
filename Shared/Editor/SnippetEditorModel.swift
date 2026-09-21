@@ -81,22 +81,25 @@ final class SnippetEditorModel {
     /// No preview audio: the timeline appears only when the complete recording is ready.
     private func prepareSelection(ref: String) async {
         isPreparing = true
-        preparationNote = "Your song is downloading"
+        preparationNote = "Waiting to prepare your song…"
         downloadFraction = nil
         downloadProgress = 0
-        let ticker = Task { await advanceDownloadProgress() }
-        defer { isPreparing = false; ticker.cancel() }
+        defer { isPreparing = false }
         do {
             var song = try await server.prepare(ref: ref)
             let deadline = ContinuousClock.now + .seconds(360)
             while song.track == nil {
                 try Task.checkCancellation()
-                if song.status == "failed" || song.status == "unavailable" { throw MusicServer.Failure.songUnavailable }
+                if song.status == "failed" || song.status == "unavailable" {
+                    throw MusicServer.Failure.preparationFailed(song.statusMessage ?? "MIFS can't get this song yet.")
+                }
                 if ContinuousClock.now >= deadline { throw MusicServer.Failure.stillAdding }
                 if let total = song.downloadTotalBytes, total > 0 {
                     downloadFraction = (Double(song.downloadedBytes ?? 0) / Double(total)).clamped(to: 0...1)
                     isFinishingDownload = downloadFraction == 1
                 } else { downloadFraction = nil; isFinishingDownload = false }
+                downloadProgress = downloadFraction ?? 0
+                preparationNote = song.statusMessage ?? (isFinishingDownload ? "Finishing your song…" : downloadFraction != nil ? "Downloading your song…" : "Finding an audio source…")
                 if lyrics.isEmpty { lyrics = (try? await server.lyrics(for: song.id)) ?? [] }
                 try await Task.sleep(for: .milliseconds(500))
                 song = try await server.song(id: song.id)
@@ -117,16 +120,6 @@ final class SnippetEditorModel {
         } catch {
             preparationNote = nil
             phase = .failed(Self.message(for: error))
-        }
-    }
-
-    /// spotDL reports no bytes while it searches, and the server none while it processes, so the bar
-    /// eases toward 97% on its own and jumps ahead whenever the real download is further along.
-    private func advanceDownloadProgress() async {
-        while !Task.isCancelled {
-            let real = downloadFraction.map { 0.1 + 0.8 * $0 } ?? 0
-            downloadProgress = max(downloadProgress + (0.97 - downloadProgress) * 0.012, real)
-            try? await Task.sleep(for: .milliseconds(250))
         }
     }
 

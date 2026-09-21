@@ -5,29 +5,29 @@ stateless Cloudflare Worker.
 
 ## How snippets travel
 
-| From | Catalog snippet (Apple Music preview) | Clip of the user's own audio |
+| From | Server mif (selected song interval) | Clip of the user's own audio |
 | --- | --- | --- |
 | iMessage (unchanged) | `MSMessage` bubble; tap opens the MIFS player | audio attachment |
 | Telegram | photo card (artwork, song) with **▶︎ Play Snippet**; tap opens the MIFS player in the chat | native Telegram audio message (title, artist, artwork) via Telegram's share extension |
 
-**Sending from the iOS app.** Tapping **Telegram** in the editor (or *Send in Telegram* in Snippets) opens
-`tg://resolve?domain=<bot>&startapp=s1_…&mode=compact`. Telegram shows the MIFS Mini App as a half-sheet playing the
+**Sending from iOS or Android.** Choose **Share → Telegram** for a mif from `https://mifs.cgn.fi`.
+This opens `tg://resolve?domain=<bot>&startapp=s2_<mifId>&mode=compact`. Telegram shows the MIFS Mini App as a half-sheet playing the
 snippet, with **Send to Chat** → the server prepares the card (`savePreparedInlineMessage`) → Telegram's own chat
 picker (`WebApp.shareMessage`). Without Telegram installed, the same link opens on t.me.
 
-**Receiving.** The card's button is a Main Mini App link (`t.me/<bot>?startapp=p1_…&mode=compact`), so anyone
+**Receiving.** The card's button is a Main Mini App link (`t.me/<bot>?startapp=p2_<mifId>&mode=compact`), so anyone
 can play the exact moment inside Telegram on any platform, without installing anything. **Reply with a Snippet** opens the
 Mini App's song browser and editor, the same flow as the iMessage extension.
 
 **Other ways in.** The bot's menu button and `/start` open the song browser. Typing `@<bot>` in any chat shows a
 **Make a Snippet** button; the finished snippet returns to that chat as an inline result.
 
-The snippet code (`<s|p>1_<trackId>_<storefront>_<startMs>_<durationMs>_<waveform hex>`) fully describes a
-snippet, so nothing is stored. It is defined in `public/snippet-code.js` and `MIFS/Telegram/TelegramLink.swift`;
-both test suites assert the same fixture string.
+The server code (`<s|p>2_<mifId>`) references an immutable song interval stored by the music server.
+The Worker resolves metadata and proxies only the selected audio interval, including HTTP range requests.
+The iOS, Android, and Mini App codecs use the same fixture. Legacy Apple preview codes
+(`<s|p>1_<trackId>_<storefront>_<startMs>_<durationMs>_<waveform hex>`) remain supported.
 
-Owned audio never touches MIFS servers. Apple previews are streamed from Apple, never re-hosted. This matches how the
-iMessage app treats them.
+Owned audio stays on-device and uses the system share sheet. Legacy Apple previews are streamed from Apple.
 
 ## Layout
 
@@ -53,6 +53,10 @@ test/            node --test (no dependencies)
    npx wrangler@4 secret bulk .dev.vars       # uploads BOT_TOKEN and WEBHOOK_SECRET
    npm run deploy                             # prints https://mifs-telegram.<account>.workers.dev
    ```
+   `wrangler.toml` sets `MIFS_SERVER_URL=https://mifs.cgn.fi`. Redeploying the Worker is required:
+   older deployments do not expose `/api/mifs/<id>` and cannot play the apps' new server mif codes.
+   Preserve the existing bot token and webhook secret when updating; if they are already configured
+   in Cloudflare, `npm run deploy` is sufficient and does not require re-uploading secrets or running setup.
 3. **In BotFather** (these have no Bot API equivalent):
    - `/mybots` → the bot → *Bot Settings* → *Configure Mini App* → enable the **Main Mini App** with the Worker URL.
    - `/setinline` → the bot → placeholder `Make a snippet…`.
@@ -72,3 +76,13 @@ npm run dev                   # local Worker + Mini App at http://localhost:8787
 Outside Telegram, the page substitutes its own bottom and back buttons, so the player
 (`/?code=p1_1499378607_us_12345_10000_…`), browser and editor can be tried in a desktop browser. Sending needs
 Telegram, because `initData` proves who is sending.
+
+## Restoration validation (2026-09-20)
+
+The updated code passed 30 JavaScript tests and a Wrangler deployment dry run. Against the
+public music server, the Worker code resolved the “God Is” mif into an artwork card and proxied
+its audio with a 206 range response. Android build, five unit tests, and lint (no errors)
+passed; the updated APK was installed on the OnePlus 6T and the catalog/editor/share/Recent
+device test passed. Swift source parsing passed on Linux, but iOS still needs an Xcode build
+and signed installation. The live Worker still needs deployment: its `/api/mifs/<id>` route
+returned 404. No Telegram message was sent during these checks.

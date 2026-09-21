@@ -1,0 +1,10 @@
+*
+!Containerfile
+!go.mod
+!go.sum
+!cmd/
+!cmd/**
+!internal/
+!internal/**
+!seed/
+!seed/**

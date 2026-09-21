@@ -1,6 +1,7 @@
 package com.mifs.android
 
 import android.content.Intent
+import android.content.ActivityNotFoundException
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
@@ -28,7 +29,7 @@ class MainActivity : ComponentActivity() {
     private var focus: AudioFocusRequest? = null
     private val prefs by lazy { getSharedPreferences("mifs", MODE_PRIVATE) }
     private val server get() = MusicServer(serverAddress)
-    internal var serverAddress by mutableStateOf("http://127.0.0.1:8080")
+    internal var serverAddress by mutableStateOf("https://mifs.cgn.fi")
     internal var appearance by mutableStateOf("system")
     internal var page by mutableStateOf(Page.Discover)
     internal var query by mutableStateOf("")
@@ -49,6 +50,7 @@ class MainActivity : ComponentActivity() {
     internal var notice by mutableStateOf<String?>(null)
     internal var incomplete by mutableStateOf(false)
     internal var sharing by mutableStateOf(false)
+    internal var sharePicker by mutableStateOf<JSONObject?>(null)
     internal var playback by mutableStateOf("idle")
     internal var playheadMs by mutableIntStateOf(0)
     internal var playbackProgress by mutableFloatStateOf(0f)
@@ -130,11 +132,18 @@ class MainActivity : ComponentActivity() {
                 if (ready.has("ref")) ready = server.request("/v1/songs", JSONObject().put("ref", ready.getString("ref")))
                 val deadline = android.os.SystemClock.elapsedRealtime() + 360_000
                 while (ready.optString("status", "ready") != "ready") {
-                    if (ready.optString("status") in listOf("failed", "unavailable")) error("This song couldn't be prepared. Try another song.")
+                    if (ready.optString("status") in listOf("failed", "unavailable")) error(ready.optString("statusMessage").ifBlank { "This song couldn't be prepared. Try another song." })
                     if (android.os.SystemClock.elapsedRealtime() >= deadline) error("The song is still preparing. Please try again in a minute.")
                     val total = ready.optLong("downloadTotalBytes")
                     downloadProgress = if (total > 0) (ready.optLong("downloadedBytes").toFloat() / total).coerceIn(0f, 1f) else null
-                    loadingText = if (downloadProgress == 1f) "Finishing your song" else "Downloading your song"
+                    loadingText = ready.optString("statusMessage").ifBlank {
+                        when {
+                            downloadProgress == 1f -> "Finishing your song"
+                            total > 0 -> "Downloading your song"
+                            ready.optString("status") == "pending" -> "Waiting to prepare your song"
+                            else -> "Finding an audio source"
+                        }
+                    }
                     delay(750); ready = server.request("/v1/songs/${ready.getString("id")}")
                 }
                 song = ready
@@ -242,6 +251,22 @@ class MainActivity : ComponentActivity() {
         }
     }
     private fun shareMif(value: JSONObject) {
+        if (TelegramLink.startParameter(value.optString("url")) != null && !value.has("localFile")) {
+            sharePicker = value
+        } else shareOtherApps(value)
+    }
+    internal fun shareTelegram(value: JSONObject) {
+        sharePicker = null
+        val parameter = TelegramLink.startParameter(value.optString("url")) ?: return
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(TelegramLink.appURL(parameter))))
+        } catch (_: ActivityNotFoundException) {
+            try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(TelegramLink.webURL(parameter)))) }
+            catch (error: ActivityNotFoundException) { report(error) }
+        }
+    }
+    internal fun shareOtherApps(value: JSONObject) {
+        sharePicker = null
         val ready = value.getJSONObject("song")
         val send = Intent(Intent.ACTION_SEND)
         if (value.has("localFile")) {

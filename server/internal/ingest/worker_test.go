@@ -158,6 +158,26 @@ func TestWorkerOutcomes(t *testing.T) {
 		worker.Process(ctx, song)
 		check(t, store, song.ID, catalog.StatusUnavailable, "no audio sources", time.Minute)
 	})
+
+	t.Run("authentication does not retry automatically", func(t *testing.T) {
+		worker, store := newWorker(t, failingSource{audio.ErrAuthenticationRequired})
+		song := pendingSong(t, store, 6_000, "")
+		worker.Process(ctx, song)
+		check(t, store, song.ID, catalog.StatusFailed, audio.ErrAuthenticationRequired.Error(), time.Minute)
+		if _, ok, err := store.Claim(ctx, time.Now().Add(time.Hour)); ok || err != nil {
+			t.Fatalf("blocked download was retried: %v %v", ok, err)
+		}
+	})
+
+	t.Run("another source can satisfy an authentication failure", func(t *testing.T) {
+		worker, store := newWorker(t, failingSource{audio.ErrAuthenticationRequired}, &toneSource{t: t})
+		song := pendingSong(t, store, 6_000, "")
+		worker.Process(ctx, song)
+		ready, err := store.Song(ctx, song.ID)
+		if err != nil || !ready.Ready() {
+			t.Fatalf("fallback did not succeed: %+v %v", ready, err)
+		}
+	})
 	t.Run("wrong length is another version", func(t *testing.T) {
 		worker, store := newWorker(t, &toneSource{t: t})
 		song := pendingSong(t, store, 200_000, "")

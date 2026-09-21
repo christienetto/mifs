@@ -65,10 +65,20 @@ struct TelegramLinkTests {
     @Test func serverMifUsesBotCardCode() throws {
         var snippet = catalogSnippet()
         snippet.track.kind = .server
-        snippet.shareURL = URL(string: "https://music.example/m/abcdefghijkl")
+        snippet.shareURL = URL(string: "https://mifs.cgn.fi/m/abcdefghijkl")
         #expect(TelegramLink.startParameter(for: snippet, intent: .send) == "s2_abcdefghijkl")
         #expect(TelegramLink.startParameter(for: snippet, intent: .play) == "p2_abcdefghijkl")
         #expect(TelegramLink.appURL(for: snippet)?.absoluteString.contains("startapp=s2_abcdefghijkl") == true)
+    }
+
+    @Test func serverMifsMustUseTheBotsMusicServer() {
+        var snippet = catalogSnippet()
+        snippet.track.kind = .server
+        for page in ["https://localhost/m/abcdefghijkl", "http://mifs.cgn.fi/m/abcdefghijkl",
+                     "https://mifs.cgn.fi:8080/m/abcdefghijkl", "https://mifs.cgn.fi/m/nope"] {
+            snippet.shareURL = URL(string: page)
+            #expect(TelegramLink.startParameter(for: snippet, intent: .send) == nil)
+        }
     }
 
     @Test func ownedAudioHasNoTelegramLink() {

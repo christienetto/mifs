@@ -119,6 +119,9 @@ func (w *Worker) Process(ctx context.Context, song catalog.Song) {
 		return
 	case ctx.Err() != nil:
 		err = store.SetStatus(record, song.ID, catalog.StatusPending, "interrupted", time.Now())
+	case errors.Is(err, audio.ErrAuthenticationRequired):
+		log.Warn("song blocked by audio provider authentication", "err", err)
+		err = store.SetStatus(record, song.ID, catalog.StatusFailed, audio.ErrAuthenticationRequired.Error(), time.Now().Add(w.unavailableRetry()))
 	case errors.As(err, &unavailable):
 		log.Info("song unavailable", "reason", err)
 		err = store.SetStatus(record, song.ID, catalog.StatusUnavailable, err.Error(), time.Now().Add(w.unavailableRetry()))
@@ -198,6 +201,7 @@ func (w *Worker) acquire(ctx context.Context, req audio.Request, work string) (a
 		return audio.Result{}, "", errUnavailable{"no audio sources are configured"}
 	}
 	var failures, rejections []string
+	var authenticationRequired bool
 	for i, source := range w.Sources {
 		dir := filepath.Join(work, fmt.Sprintf("source-%d", i))
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -208,6 +212,7 @@ func (w *Worker) acquire(ctx context.Context, req audio.Request, work string) (a
 			continue
 		}
 		if err != nil {
+			authenticationRequired = authenticationRequired || errors.Is(err, audio.ErrAuthenticationRequired)
 			failures = append(failures, fmt.Sprintf("%s: %v", source.Name(), err))
 			continue
 		}
@@ -224,6 +229,9 @@ func (w *Worker) acquire(ctx context.Context, req audio.Request, work string) (a
 		return result, source.Name(), nil
 	}
 	if len(failures) > 0 {
+		if authenticationRequired {
+			return audio.Result{}, "", fmt.Errorf("%w: %s", audio.ErrAuthenticationRequired, strings.Join(failures, "; "))
+		}
 		return audio.Result{}, "", errors.New(strings.Join(failures, "; "))
 	}
 	detail := "no audio source has this song"

@@ -13,7 +13,9 @@ One **Share** button offers the appropriate destination. Sharing stores only the
 and timestamps; recipients receive just that interval. **Recent** opens saved moments and
 lyrics, and received mifs play on opening.
 
-The Telegram changes are staged locally and paused until a public music server is available.
+**Share → Telegram** opens the MIFS bot's player and chat picker. The recipient gets an artwork
+card with **Play Snippet**, which plays the selected interval inside Telegram. The Telegram
+Worker must be deployed with the public music-server setting; see [`telegram/README.md`](telegram/README.md).
 
 ## Layout
 
@@ -27,6 +29,11 @@ The Telegram changes are staged locally and paused until a public music server i
 | `project.yml` | XcodeGen spec that `MIFS.xcodeproj` is generated from |
 
 ## Run the whole system locally
+
+The iOS app, Messages extension, and Android app default to `https://mifs.cgn.fi`.
+Deployment instructions are in [`server/deploy/README.md`](server/deploy/README.md).
+For the local iOS workflow below, create `Config/Local.xcconfig` with
+`MIFS_SERVER_URL = http:/$()/localhost:8080`; this overrides the public default.
 
 You need Xcode 26 with an iOS 18+ simulator, Go 1.25+ and ffmpeg (`brew install go ffmpeg`).
 

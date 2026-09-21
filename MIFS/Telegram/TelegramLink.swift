@@ -4,7 +4,8 @@ import Foundation
 ///
 /// Telegram passes a link's `startapp` value to the Mini App but allows only 512 characters of
 /// `A-Z a-z 0-9 _ -`, so just enough to rebuild the snippet travels: the song's catalog ID and
-/// storefront, the moment, and the waveform. The Mini App looks everything else up in Apple's catalog.
+/// storefront, the moment, and the waveform for legacy catalog snippets. Server snippets carry a mif ID
+/// and are resolved against the bot's public music server.
 ///
 /// Format (mirrored by `telegram/public/snippet-code.js`):
 /// `<intent>1_<trackID>_<storefront>_<startMs>_<durationMs>_<waveform>`, e.g. `s1_1499378607_us_12345_10000_7fa3…`.
@@ -26,6 +27,7 @@ nonisolated enum TelegramLink {
     }
 
     static let version = 1
+    static let musicServerHost = "mifs.cgn.fi"
 
     /// The bot whose Main Mini App is MIFS, from the `MIFS_TELEGRAM_BOT` build setting.
     static var botUsername: String {
@@ -54,6 +56,8 @@ nonisolated enum TelegramLink {
     static func startParameter(for snippet: Snippet, intent: Intent) -> String? {
         let track = snippet.track
         if track.kind == .server, let page = snippet.shareURL,
+           page.scheme == "https", page.host() == musicServerHost,
+           page.port == nil || page.port == 443, page.user() == nil,
            page.pathComponents.count == 3, page.pathComponents[1] == "m",
            page.lastPathComponent.wholeMatch(of: /[a-z2-7]{12}/) != nil {
             return "\(intent.rawValue)2_\(page.lastPathComponent)"

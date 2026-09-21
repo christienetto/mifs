@@ -7,7 +7,7 @@
     "dev": "npx wrangler@4 dev",
     "deploy": "npx wrangler@4 deploy",
     "setup": "node --env-file=.dev.vars scripts/setup.mjs",
-    "test": "node --test test/"
+    "test": "node --test test/*.test.js"
   },
   "engines": {
     "node": ">=20"

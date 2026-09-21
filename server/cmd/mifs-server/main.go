@@ -123,7 +123,7 @@ func serve(logger *slog.Logger, args []string) error {
 		if _, err := exec.LookPath(binary); err != nil {
 			logger.Warn("spotdl not installed: new Spotify songs cannot be downloaded", "binary", binary)
 		}
-		sources = append(sources, &audio.SpotDL{Binary: binary})
+		sources = append(sources, &audio.SpotDL{Binary: binary, CookieFile: env("MIFS_SPOTDL_COOKIE_FILE", "")})
 	}
 	if _, err := exec.LookPath(*ffmpeg); err != nil {
 		logger.Warn("ffmpeg not found: making mifs and ingesting songs will fail", "ffmpeg", *ffmpeg)

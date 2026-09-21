@@ -15,6 +15,7 @@ Config/Local.xcconfig
 node_modules/
 .wrangler/
 .dev.vars
+*cookies*.txt
 
 # Server-local downloader environment.
 server/.venv/

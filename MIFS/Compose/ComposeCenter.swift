@@ -16,6 +16,7 @@ final class ComposeCenter {
     var sharing: Snippet?
     /// A brief confirmation shown over the app, e.g. after Telegram hands back from a send.
     var confirmation: String?
+    var shareError: String?
 
     /// Where the app can send snippets, in the order they're offered.
     var destinations: [SendDestination] {
@@ -44,7 +45,9 @@ final class ComposeCenter {
         }
         let application = UIApplication.shared
         if application.canOpenURL(appURL), await application.open(appURL) { return }
-        await application.open(webURL)
+        if !(await application.open(webURL)) {
+            shareError = "Couldn't open Telegram. Install Telegram or use Other Apps to share your mif link."
+        }
     }
 
     /// The MIFS Mini App sent the snippet and handed back to the app.

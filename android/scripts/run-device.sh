@@ -28,6 +28,8 @@ else
   device="$devices"
 fi
 ./gradlew :app:assembleDebug --console=plain
-"$adb" -s "$device" reverse tcp:8080 tcp:8080
+if [[ "${MIFS_LOCAL_SERVER:-0}" == 1 ]]; then
+  "$adb" -s "$device" reverse tcp:8080 tcp:8080
+fi
 "$adb" -s "$device" install -r app/build/outputs/apk/debug/app-debug.apk
 "$adb" -s "$device" shell am start -n com.mifs.android/.MainActivity

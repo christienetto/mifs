@@ -1,0 +1,29 @@
+[Unit]
+Description=MIFS music server
+
+[Container]
+Image=localhost/mifs-server:latest
+Pull=never
+ContainerName=mifs
+PublishPort=127.0.0.1:18080:8080
+Volume=%h/data:/data
+Volume=%h/.config/mifs/youtube-cookies.txt:/run/mifs/youtube-cookies.txt
+Environment=MIFS_PUBLIC_URL=https://mifs.cgn.fi
+Environment=MIFS_IOS_APP_ID=DRM6RX29P7.dev.kuchta.mifs
+EnvironmentFile=%h/.config/mifs/server.env
+HealthCmd=curl --fail --silent http://127.0.0.1:8080/healthz
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=3
+HealthOnFailure=kill
+NoNewPrivileges=true
+DropCapability=all
+
+[Service]
+Restart=always
+RestartSec=5
+TimeoutStartSec=120
+TimeoutStopSec=45
+
+[Install]
+WantedBy=default.target

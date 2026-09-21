@@ -157,13 +157,19 @@ struct SnippetEditorView: View {
         VStack(spacing: 14) {
             if model.isPreparing {
                 HStack {
-                    Text(model.isFinishingDownload ? "Finishing your song…" : "Your song is downloading")
+                    Text(model.preparationNote ?? "Preparing your song…")
                     Spacer()
-                    Text("\(Int(model.downloadProgress * 100))%").monospacedDigit()
+                    if model.downloadFraction != nil {
+                        Text("\(Int(model.downloadProgress * 100))%").monospacedDigit()
+                    }
                 }
-                ProgressView(value: model.downloadProgress)
-                    .tint(.white)
-                    .animation(.linear(duration: 0.25), value: model.downloadProgress)
+                if model.downloadFraction != nil {
+                    ProgressView(value: model.downloadProgress)
+                        .tint(.white)
+                        .animation(.linear(duration: 0.25), value: model.downloadProgress)
+                } else {
+                    ProgressView().tint(.white)
+                }
             } else {
                 ProgressView().tint(.white)
                 Text("Loading song…")

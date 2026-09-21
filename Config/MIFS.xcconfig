@@ -1,12 +1,11 @@
 // Build settings shared by every target and configuration (see project.yml).
 
 // Where the app and the Messages extension find the MIFS music server (server/README.md).
-// The simulator reaches the Mac's server on localhost. `//` starts a comment in xcconfig
-// files, hence the `$()` inside the URL.
-MIFS_SERVER_URL = http:/$()/localhost:8080
+// `//` starts a comment in xcconfig files, hence the `$()` inside the URL.
+MIFS_SERVER_URL = https:/$()/mifs.cgn.fi
 
 // Public HTTPS host that opens shared /m/* links in the app. Set for deployment.
-MIFS_LINK_HOST = mifs.invalid
+MIFS_LINK_HOST = mifs.cgn.fi
 
 // Machine-specific overrides, e.g. your Mac's LAN address for a physical iPhone.
 // Copy Local.xcconfig.example to Local.xcconfig (git-ignored).

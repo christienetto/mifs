@@ -63,6 +63,23 @@ internal fun MifsApp(app: MainActivity) {
             }
             if (settings) SettingsSheet(app) { settings = false }
             if (openLink) LinkSheet(app) { openLink = false }
+            app.sharePicker?.let { value ->
+                ModalBottomSheet(onDismissRequest = { app.sharePicker = null }) {
+                    Column(Modifier.fillMaxWidth().semantics { testTagsAsResourceId = true }
+                        .padding(horizontal = 24.dp).padding(bottom = 24.dp)) {
+                        Text("Share Mif", style = MaterialTheme.typography.headlineSmall)
+                        Spacer(Modifier.height(12.dp))
+                        Text(value.getJSONObject("song").optString("title"), style = MaterialTheme.typography.bodyLarge)
+                        Spacer(Modifier.height(16.dp))
+                        Button(onClick = { app.shareTelegram(value) }, modifier = Modifier.fillMaxWidth().testTag("share-telegram")) {
+                            Text("Telegram")
+                        }
+                        TextButton(onClick = { app.shareOtherApps(value) }, modifier = Modifier.fillMaxWidth().testTag("share-other")) {
+                            Text("Other Apps")
+                        }
+                    }
+                }
+            }
             app.notice?.let { message ->
                 AlertDialog(onDismissRequest = { app.notice = null }, icon = { Icon(Icons.Rounded.Info, null) },
                     title = { Text("A quick note") }, text = { Text(message) },

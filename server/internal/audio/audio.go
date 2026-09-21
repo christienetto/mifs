@@ -18,6 +18,9 @@ import (
 // transient and retried.
 var ErrNotFound = errors.New("not available from this source")
 
+// ErrAuthenticationRequired cannot be repaired by repeatedly retrying a download.
+var ErrAuthenticationRequired = errors.New("audio source requires authentication")
+
 // Request describes the song whose audio is wanted.
 type Request struct {
 	Progress   func(downloaded, total int64)

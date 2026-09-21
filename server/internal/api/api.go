@@ -31,6 +31,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/christienetto/mifs/server/internal/audio"
 	"github.com/christienetto/mifs/server/internal/blob"
 	"github.com/christienetto/mifs/server/internal/catalog"
 	"github.com/christienetto/mifs/server/internal/clip"
@@ -115,6 +116,7 @@ type songJSON struct {
 	ID                 string `json:"id"`
 	// Status is the song's ingestion status (catalog.Status). Only "ready" songs have audio.
 	Status           string       `json:"status"`
+	StatusMessage    string       `json:"statusMessage,omitempty"`
 	ISRC             string       `json:"isrc,omitempty"`
 	Title            string       `json:"title"`
 	Artist           string       `json:"artist"`
@@ -177,18 +179,19 @@ type waveformJSON struct {
 func (s *server) songJSON(r *http.Request, song catalog.Song) songJSON {
 	out := songJSON{
 		DownloadedBytes: song.DownloadedBytes, DownloadTotalBytes: song.DownloadTotalBytes,
-		ID:          song.ID,
-		Status:      string(song.Status),
-		ISRC:        song.ISRC,
-		Title:       song.Title,
-		Artist:      song.Artist,
-		Album:       song.Album,
-		TrackNumber: song.TrackNumber,
-		ReleaseYear: song.ReleaseYear,
-		Genre:       song.Genre,
-		Explicit:    song.Explicit,
-		DurationMs:  song.DurationMs,
-		HasLyrics:   song.HasLyrics,
+		ID:            song.ID,
+		Status:        string(song.Status),
+		StatusMessage: preparationMessage(song),
+		ISRC:          song.ISRC,
+		Title:         song.Title,
+		Artist:        song.Artist,
+		Album:         song.Album,
+		TrackNumber:   song.TrackNumber,
+		ReleaseYear:   song.ReleaseYear,
+		Genre:         song.Genre,
+		Explicit:      song.Explicit,
+		DurationMs:    song.DurationMs,
+		HasLyrics:     song.HasLyrics,
 	}
 	if song.Ready() {
 		out.Audio = &audioJSON{
@@ -211,6 +214,33 @@ func (s *server) songJSON(r *http.Request, song catalog.Song) songJSON {
 		out.License = &licenseJSON{Name: song.LicenseName, URL: song.LicenseURL, Attribution: song.Attribution}
 	}
 	return out
+}
+
+// Keep subprocess diagnostics private; expose only actionable, stable messages.
+func preparationMessage(song catalog.Song) string {
+	switch song.Status {
+	case catalog.StatusFailed:
+		if song.StatusDetail == audio.ErrAuthenticationRequired.Error() {
+			return "The audio provider requires sign-in on the server. This song cannot be downloaded yet."
+		}
+		return "This song could not be downloaded. Please try again later."
+	case catalog.StatusUnavailable:
+		return "No audio source could provide this song."
+	case catalog.StatusPending:
+		if song.Attempts > 0 {
+			return "Download failed. Waiting to retry…"
+		}
+		return "Waiting to prepare your song…"
+	case catalog.StatusProcessing:
+		if song.DownloadTotalBytes > 0 && song.DownloadedBytes >= song.DownloadTotalBytes {
+			return "Finishing your song…"
+		}
+		if song.DownloadedBytes > 0 {
+			return "Downloading your song…"
+		}
+		return "Finding an audio source…"
+	}
+	return ""
 }
 
 // songDetailJSON is songJSON plus the song's provider links.

@@ -25,7 +25,7 @@ export async function prepareTrack(selected, onProgress, signal) {
     : await api(`songs/${encodeURIComponent(selected.id)}`, { signal });
   const deadline = Date.now() + 360000;
   while (song.status !== 'ready') {
-    if (['failed', 'unavailable'].includes(song.status)) throw new Error('Couldn’t download this song. Try again.');
+    if (['failed', 'unavailable'].includes(song.status)) throw new Error(song.statusMessage || 'Couldn’t download this song. Try again.');
     if (Date.now() >= deadline) throw new Error('This song is still downloading. Try again shortly.');
     onProgress(song);
     await new Promise(resolve => setTimeout(resolve, 500));

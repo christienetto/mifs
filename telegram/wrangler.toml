@@ -10,6 +10,7 @@ binding = "ASSETS"
 [vars]
 # Must match MIFS_TELEGRAM_BOT in ../project.yml.
 BOT_USERNAME = "MIFSAppBot"
+MIFS_SERVER_URL = "https://mifs.cgn.fi"
 # <Team ID>.<bundle ID> of the MIFS iOS app, for universal links back into it (see ../project.yml).
 APPLE_APP_ID = "DRM6RX29P7.dev.kuchta.mifs"
 

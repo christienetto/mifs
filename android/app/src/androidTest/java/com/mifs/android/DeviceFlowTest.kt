@@ -49,6 +49,8 @@ class DeviceFlowTest {
         device.waitForIdle()
         device.takeScreenshot(File(context.getExternalFilesDir(null), "editor.png"))
         device.findObject(By.res("share")).click()
+        assertTrue(device.wait(Until.hasObject(By.res("share-telegram")), 15_000))
+        device.findObject(By.res("share-other")).click()
         assertTrue(device.wait(Until.hasObject(By.res("android", "content_preview_text")), 15_000))
         assertTrue(device.findObject(By.res("android", "content_preview_text")).text.contains("/m/"))
         device.pressBack()

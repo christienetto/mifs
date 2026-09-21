@@ -146,7 +146,7 @@ async function send(snippet, track) {
   // opened. That suits two launches: from a snippet card (back to that conversation) and from the iOS app
   // (back to MIFS). Opened from the bot itself, pick the chat first instead and land in it, with
   // "@bot <code>" typed in and the card offered above the keyboard (the bot answers that inline query).
-  const fromApp = launchCode?.intent === 'send' && !fromInline && tg.platform === 'ios';
+  const fromApp = launchCode?.intent === 'send' && !fromInline;
   const insideConversation = launchCode?.intent === 'play' && !fromInline;
   if (!(fromApp || insideConversation) || !tg.isVersionAtLeast('8.0')) {
     try {
@@ -172,7 +172,7 @@ async function send(snippet, track) {
     tg.shareMessage(body.id, (sent) => {
       if (!sent) return;
       haptics.success();
-      if (fromApp) backToApp();
+      if (fromApp && tg.platform === 'ios') backToApp();
       else setTimeout(() => tg.close(), 350);
     });
   } catch (error) {

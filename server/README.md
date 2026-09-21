@@ -210,6 +210,7 @@ Existing clip files from older versions are left untouched, and older message li
 | `MIFS_FFMPEG`, `MIFS_FFPROBE` | from `PATH` | For ingestion and mif clips |
 | `MIFS_DISCOVERY` (`-discovery`) | `spotify` | Search requires Spotify credentials; other providers are only for legacy identities |
 | `MIFS_SPOTDL` | `spotdl` | Downloader executable |
+| `MIFS_SPOTDL_COOKIE_FILE` | | Private Netscape-format cookies file for the audio provider; use its container path when deployed |
 | `MIFS_IOS_APP_ID` | | Apple team ID + bundle ID for Universal Links |
 | `MIFS_SPOTIFY_CLIENT_ID`, `MIFS_SPOTIFY_CLIENT_SECRET`, `MIFS_SPOTIFY_MARKET` | | Spotify app credentials, optional market (e.g. `US`) |
 | `MIFS_LYRICS` (`-lyrics`) | `lrclib` | Synced lyrics providers. Empty turns lyric lookups off |
@@ -217,10 +218,21 @@ Existing clip files from older versions are left untouched, and older message li
 | `MIFS_AUDIO_COMMAND` (`-audio-command`) | | Audio source: a command that fetches audio |
 | `MIFS_WORKERS` (`-workers`) | `2` | Songs ingested at once. `0` turns ingestion off in this process |
 
-Only the Spotify credentials are secret. The write endpoints (`POST`) have no authentication
+Spotify credentials and audio-provider cookies are secret. The write endpoints (`POST`) have no authentication
 yet, so put the server behind authentication or rate limiting before exposing it publicly.
 
+`statusMessage` describes whether a song is queued, locating audio, downloading, processing,
+or waiting for a retry. Only actual transfer bytes produce a download percentage. When the
+audio provider requires authentication, the song fails immediately instead of retrying silently;
+the public response contains a safe explanation, while subprocess diagnostics stay in server logs.
+Spotify credentials authorize discovery, not YouTube downloads. The container includes Deno for
+yt-dlp, but a provider can still require an authenticated session on the server.
+
 ## Deploying
+
+For the Debian server at `mifs.cgn.fi`, use the rootless Podman container and Quadlet in
+[`deploy/`](deploy/README.md). They include persistent storage, the public origin, and nginx
+configuration. The general manual deployment steps below remain useful for other hosts.
 
 1. `GOOS=linux GOARCH=amd64 make build` produces `bin/mifs-server`.
 2. Run `ingest` on the host, or copy a `data/` directory built elsewhere.

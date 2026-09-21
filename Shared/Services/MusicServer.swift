@@ -22,6 +22,7 @@ nonisolated struct MusicServer: Sendable {
         case unsupportedWaveform
         /// No audio source could supply the song.
         case songUnavailable
+        case preparationFailed(String)
         /// The song is still being added after polling for a while.
         case stillAdding
 
@@ -34,6 +35,7 @@ nonisolated struct MusicServer: Sendable {
             case .badResponse: "The MIFS server had a problem. Try again in a moment."
             case .unsupportedWaveform: "The MIFS server sent a waveform this version of MIFS can't read."
             case .songUnavailable: "MIFS can't get this song yet."
+            case .preparationFailed(let message): message
             case .stillAdding: "MIFS is still adding this song. Try again in a minute."
             }
         }
@@ -75,7 +77,9 @@ nonisolated struct MusicServer: Sendable {
         let deadline = ContinuousClock.now + .seconds(120)
         while true {
             if let track = song.track { return track }
-            if song.status == "unavailable" || song.status == "failed" { throw Failure.songUnavailable }
+            if song.status == "unavailable" || song.status == "failed" {
+                throw Failure.preparationFailed(song.statusMessage ?? "MIFS can't get this song yet.")
+            }
             guard ContinuousClock.now < deadline else { throw Failure.stillAdding }
             try await Task.sleep(for: .seconds(1))
             song = try await get(["v1", "songs", song.id], fresh: true)
@@ -194,6 +198,7 @@ nonisolated struct SongList: Decodable {
         let id: String
         /// "ready" once the song can be played; songs being added have no audio yet.
         let status: String?
+        var statusMessage: String? = nil
         var downloadedBytes: Int64? = nil
         var downloadTotalBytes: Int64? = nil
         let title: String

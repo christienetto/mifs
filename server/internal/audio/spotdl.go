@@ -2,7 +2,6 @@ package audio
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	_ "embed"
 	"encoding/json"
@@ -17,7 +16,10 @@ import (
 
 // SpotDL acquires a selected Spotify recording once; the normal ingestion pipeline
 // verifies its duration, converts it and stores the full song under a content hash.
-type SpotDL struct{ Binary string }
+type SpotDL struct {
+	Binary     string
+	CookieFile string
+}
 
 //go:embed spotdl_progress.py
 var progressScript string
@@ -46,6 +48,11 @@ func (s *SpotDL) Fetch(ctx context.Context, req Request, dir string) (Result, er
 	out := filepath.Join(dir, "spotdl.m4a")
 	args := []string{"download", "https://open.spotify.com/track/" + id,
 		"--format", "m4a", "--output", filepath.Join(dir, "spotdl.{output-ext}"), "--threads", "1"}
+	// MIFS fetches synced lyrics separately. Avoid redundant provider requests.
+	args = append(args, "--log-level", "ERROR", "--lyrics")
+	if s.CookieFile != "" {
+		args = append(args, "--cookie-file", s.CookieFile)
+	}
 	command := binary
 	if resolved, err := exec.LookPath(binary); err == nil {
 		if target, err := filepath.EvalSymlinks(resolved); err == nil {
@@ -61,7 +68,7 @@ func (s *SpotDL) Fetch(ctx context.Context, req Request, dir string) (Result, er
 	if err != nil {
 		return Result{}, err
 	}
-	var stderr bytes.Buffer
+	var stderr, output diagnosticTail
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
 		return Result{}, err
@@ -69,8 +76,18 @@ func (s *SpotDL) Fetch(ctx context.Context, req Request, dir string) (Result, er
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 4096), 1024*1024)
 	lastPercent := -1
+	authenticationRequired := false
 	for scanner.Scan() {
 		line := scanner.Text()
+		output.Write([]byte(line + "\n"))
+		if at := strings.Index(line, "MIFS_SOURCE_ERROR "); at >= 0 {
+			var failure struct {
+				Message string `json:"message"`
+			}
+			if json.Unmarshal([]byte(line[at+18:]), &failure) == nil {
+				authenticationRequired = authenticationRequired || needsAuthentication(failure.Message)
+			}
+		}
 		if at := strings.Index(line, "MIFS_PROGRESS "); at >= 0 {
 			var p struct {
 				Downloaded int64 `json:"downloaded"`
@@ -88,18 +105,44 @@ func (s *SpotDL) Fetch(ctx context.Context, req Request, dir string) (Result, er
 	if scanner.Err() != nil {
 		_ = cmd.Process.Kill()
 	}
-	if err := cmd.Wait(); err != nil {
-		detail := strings.TrimSpace(stderr.String())
-		if len(detail) > 500 {
-			detail = detail[len(detail)-500:]
-		}
-		return Result{}, fmt.Errorf("spotdl: %w: %s", err, detail)
+	waitErr := cmd.Wait()
+	detail := strings.TrimSpace(output.text + "\n" + stderr.text)
+	if ctx.Err() != nil {
+		return Result{}, fmt.Errorf("spotdl: %w", ctx.Err())
 	}
 	if err := scanner.Err(); err != nil {
 		return Result{}, err
 	}
-	if info, err := os.Stat(out); err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
-		return Result{}, fmt.Errorf("spotdl produced no audio")
+	info, statErr := os.Stat(out)
+	if waitErr != nil || statErr != nil || !info.Mode().IsRegular() || info.Size() == 0 {
+		if authenticationRequired || needsAuthentication(detail) {
+			return Result{}, ErrAuthenticationRequired
+		}
+		if len(detail) > 2000 {
+			detail = detail[len(detail)-2000:]
+		}
+		if waitErr != nil {
+			return Result{}, fmt.Errorf("spotdl: %w: %s", waitErr, detail)
+		}
+		return Result{}, fmt.Errorf("spotdl produced no audio: %s", detail)
 	}
 	return Result{Path: out}, nil
+}
+
+// Bound subprocess diagnostics even if a provider logs continuously.
+type diagnosticTail struct{ text string }
+
+func (b *diagnosticTail) Write(p []byte) (int, error) {
+	const limit = 8192
+	b.text += string(p)
+	if len(b.text) > limit {
+		b.text = b.text[len(b.text)-limit:]
+	}
+	return len(p), nil
+}
+
+func needsAuthentication(message string) bool {
+	message = strings.ToLower(strings.Join(strings.Fields(message), " "))
+	return strings.Contains(message, "sign in to confirm") ||
+		strings.Contains(message, "login required") || strings.Contains(message, "authentication required")
 }

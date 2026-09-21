@@ -1,0 +1,21 @@
+FROM docker.io/library/golang:1.26-bookworm AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd ./cmd
+COPY internal ./internal
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /mifs-server ./cmd/mifs-server
+
+FROM docker.io/library/python:3.12-slim-bookworm
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates ffmpeg curl \
+    && rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir 'spotdl==4.5.2'
+RUN spotdl --download-deno
+COPY --from=build /mifs-server /usr/local/bin/mifs-server
+COPY seed /opt/mifs/seed
+ENV MIFS_ADDR=:8080 MIFS_DATA_DIR=/data
+WORKDIR /data
+EXPOSE 8080
+ENTRYPOINT ["mifs-server"]
+CMD ["serve"]
