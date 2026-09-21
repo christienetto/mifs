@@ -14,7 +14,7 @@ const inTelegram = Boolean(tg?.initData);
 const launch = new URLSearchParams(location.search);
 /// Opened from the button above inline results: the snippet goes back to that chat as an inline query.
 const fromInline = launch.get('from') === 'inline';
-/// The snippet this launch was for, if any: "send" from the iOS app, "play" from a card in a chat.
+/// The snippet this launch was for, if any: "send" from the native app, "play" from a card in a chat.
 const launchCode = parseCode(tg?.initDataUnsafe?.start_param || launch.get('tgWebAppStartParam') || launch.get('code'));
 const app = document.getElementById('app');
 const player = new SnippetPlayer(() => current?.update?.());
@@ -128,7 +128,7 @@ function frame() {
 // MARK: - Sending
 
 /// Turns the snippet into a MIFS card and lets the user pick the chat, like Messages' compose sheet.
-async function send(snippet) {
+async function send(snippet, { automatic = false } = {}) {
   current?.pause?.();
   const code = formatCode({ mifId: snippet.mifId, intent: 'play' });
   if (!inTelegram) {
@@ -162,13 +162,18 @@ async function send(snippet) {
     const body = await response.json().catch(() => ({}));
     if (!response.ok || !body.id) throw new Error(body.error || 'Couldn’t send this snippet. Try again.');
     player.stop();
-    tg.shareMessage(body.id, (sent) => {
+    const present = () => tg.shareMessage(body.id, (sent) => {
       if (!sent) return;
       haptics.success();
       if (fromApp && tg.platform === 'ios') backToApp();
       else setTimeout(() => tg.close(), 350);
     });
+    // Android requires a tap inside Telegram. Prepare before that tap so the network
+    // request cannot consume its gesture window. Choosing a chat then sends the card.
+    mainButton.show('Send to Chat', present, { light: true });
+    if (!(automatic && tg.platform === 'android')) present();
   } catch (error) {
+    mainButton.show('Send to Chat', () => send(snippet), { light: true });
     notify(error instanceof TypeError ? 'Couldn’t reach MIFS. Check your connection and try again.' : error.message);
   } finally {
     mainButton.busy(false);
@@ -221,15 +226,15 @@ function playerView(snippet) {
   audio.onerror = () => { if (alive) status.textContent = 'Couldn’t play this mif. Tap Play to retry.'; };
   // Some WebViews require one gesture after opening. Retry once on that first gesture.
   function unlock(event) { if (!event.target.closest('.play') && audio.paused && alive) play(); }
-  // Opened by the sender from the MIFS app: straight to Telegram's share sheet, which previews the card and
-  // sends it as soon as a chat is picked. "Send to Chat" stays for another go if the sheet is dismissed.
+  // Prepare sharing immediately. Android needs a Telegram-side tap to present the sheet.
   const sharesOnOpen = inTelegram && snippet.intent === 'send' && !fromInline;
   let shared = false;
   function enter() {
     alive = true; paintChrome('#3d2e73'); backButton.set(null);
     mainButton.hide();
     if (sharesOnOpen) {
-      if (!shared) { shared = true; send(snippet); }
+      mainButton.show('Send to Chat', () => send(snippet), { light: true, enabled: false });
+      if (!shared) { shared = true; send(snippet, { automatic: true }); }
     } else {
       element.addEventListener('pointerdown', unlock, { once: true });
       play();
@@ -243,8 +248,10 @@ function playerView(snippet) {
         const p = document.createElement('p'); p.textContent = line.text; return p;
       }));
       applyTint(element, data.track, view);
-      if (snippet.intent === 'send') mainButton.show('Send to Chat', () => send(snippet), { light: true });
-      else mainButton.show('Reply with a Mif', () => mount(browserView()), { light: true });
+      if (!sharesOnOpen) {
+        if (snippet.intent === 'send') mainButton.show('Send to Chat', () => send(snippet), { light: true });
+        else mainButton.show('Reply with a Mif', () => mount(browserView()), { light: true });
+      }
       tick();
     }).catch(error => { if (alive) status.textContent = error.message; });
   }

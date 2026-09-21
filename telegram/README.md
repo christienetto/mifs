@@ -12,8 +12,12 @@ stateless Cloudflare Worker.
 
 **Sending from iOS or Android.** Choose **Share → Telegram** for a mif from `https://mifs.cgn.fi`. This opens
 `tg://resolve?domain=<bot>&startapp=s2_<mifId>&mode=compact`. The MIFS Mini App opens and, without waiting for a
-tap, the server prepares the card (`savePreparedInlineMessage`) and Telegram's share sheet shows its preview
-(`WebApp.shareMessage`); picking a chat sends it. If the sheet is dismissed, **Send to Chat** opens it again.
+tap, iOS prepares the card (`savePreparedInlineMessage`) and Telegram's share sheet shows its preview
+(`WebApp.shareMessage`); picking a chat sends it. Android prepares the same card on launch, then shows
+**Send to Chat**. Tap it to open the share sheet; choosing a chat sends the card without an inline-result
+confirmation. Android requires a recent tap inside the Mini App for `shareMessage`, so an automatic call
+on launch is silently ignored. The prepared card is ready before the tap to avoid network delays consuming
+that gesture window. If the sheet is dismissed, **Send to Chat** opens it again.
 Without Telegram installed, the same link opens on t.me.
 
 **Receiving.** The card's button is a Main Mini App link (`t.me/<bot>?startapp=p2_<mifId>&mode=compact`), so anyone
