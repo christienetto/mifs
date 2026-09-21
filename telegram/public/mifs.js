@@ -11,11 +11,11 @@ export async function api(path, { signal, body } = {}) {
 
 function track(song) {
   return { id: song.id, title: song.title, artist: song.artist, explicit: song.explicit,
-    artworkURL: song.artwork?.url, server: true, status: song.status,
+    artworkURL: song.artwork?.url, thumbnailURL: song.artwork?.thumbnailUrl, server: true, status: song.status,
     previewURL: `/api/songs/${encodeURIComponent(song.id)}/audio` };
 }
 export async function serverTopSongs() { return (await api('songs')).songs.map(track); }
-export async function serverSearch(query, unused, options = {}) {
+export async function serverSearch(query, options = {}) {
   return (await api(`search?q=${encodeURIComponent(query)}`, options)).results.map(result => ({
     ...(result.song ? track(result.song) : track({ ...result, id: result.ref })), ref: result.ref,
   }));

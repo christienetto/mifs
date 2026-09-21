@@ -1,12 +1,11 @@
-// The MIFS Mini App. Three screens, mirroring the iMessage extension:
-//   player   — opened from a snippet card in a chat (or by the sender, from the iOS app) to play it
-//   browser  — Apple Music top songs and search, to make a snippet (or reply with one)
-//   editor   — pick the moment, preview it, send it
+// The MIFS Mini App. Three screens, mirroring the MIFS app, all backed by the MIFS music server:
+//   player   — opened from a snippet card in a chat (or by the sender, from the MIFS app) to play the mif
+//   browser  — the server's songs and search, to make a snippet (or reply with one)
+//   editor   — the song downloads to the server, then pick the moment, preview it, send it
 // Sending prepares a message on the server and hands it to Telegram's own chat picker (shareMessage).
 
-import { contrast, analyze, loadPreview, loudestWindow, SnippetPlayer, snippetLevels, unlockOnFirstGesture } from './audio.js';
-import { CatalogError, currentStorefront, lookupTrack, spotifySearchURL } from './catalog.js';
-import { clamp, clock, formatCode, LENGTHS, parseCode, WAVEFORM_BARS } from './snippet-code.js';
+import { contrast, loudestWindow, SnippetPlayer, unlockOnFirstGesture } from './audio.js';
+import { clamp, clock, formatCode, LENGTHS, parseCode } from './snippet-code.js';
 
 import { api, prepareTrack, serverSearch as search, serverTopSongs as topSongs } from './mifs.js';
 
@@ -17,7 +16,6 @@ const launch = new URLSearchParams(location.search);
 const fromInline = launch.get('from') === 'inline';
 /// The snippet this launch was for, if any: "send" from the iOS app, "play" from a card in a chat.
 const launchCode = parseCode(tg?.initDataUnsafe?.start_param || launch.get('tgWebAppStartParam') || launch.get('code'));
-const storefront = currentStorefront();
 const app = document.getElementById('app');
 const player = new SnippetPlayer(() => current?.update?.());
 let current = null;
@@ -106,11 +104,6 @@ const backButton = (() => {
   };
 })();
 
-function openLink(url) {
-  if (inTelegram) tg.openLink(url);
-  else window.open(url, '_blank', 'noopener');
-}
-
 function notify(message) {
   if (inTelegram) tg.showAlert(message);
   else window.alert(message);
@@ -135,9 +128,9 @@ function frame() {
 // MARK: - Sending
 
 /// Turns the snippet into a MIFS card and lets the user pick the chat, like Messages' compose sheet.
-async function send(snippet, track) {
+async function send(snippet) {
   current?.pause?.();
-  const code = formatCode({ ...snippet, intent: 'play' });
+  const code = formatCode({ mifId: snippet.mifId, intent: 'play' });
   if (!inTelegram) {
     notify('Open MIFS from Telegram to send snippets.');
     return;
@@ -164,7 +157,7 @@ async function send(snippet, track) {
     const response = await fetch('/api/share', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ initData: tg.initData, code, track }),
+      body: JSON.stringify({ initData: tg.initData, code }),
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok || !body.id) throw new Error(body.error || 'Couldn’t send this snippet. Try again.');
@@ -204,131 +197,8 @@ function backToApp() {
 
 // MARK: - Player
 
+// Mifs stream only their selected interval from the music server, with lyrics in original song time.
 function playerView(snippet) {
-  if (snippet.mifId) return mifPlayerView(snippet);
-  const element = html(`
-    <section class="player dark">
-      <div class="backdrop"><div class="backdrop-art"></div></div>
-      <div class="screen">
-        <div class="art-wrap"><img class="art" alt=""></div>
-        <div class="titles"><h1><span class="skeleton">&nbsp;</span></h1><p>&nbsp;</p></div>
-        <div class="wave-block">
-          <canvas class="bars" aria-hidden="true"></canvas>
-          <div class="times"><span class="elapsed">0:00</span><span>${clock(snippet.duration)}</span></div>
-        </div>
-        <div class="controls-row"></div>
-        <p class="status" hidden></p>
-        <div class="listen" hidden>
-          <button class="pill" type="button" data-open="apple" aria-label="Open in Apple Music">Apple Music</button>
-          <button class="pill" type="button" data-open="spotify" aria-label="Open in Spotify">Spotify</button>
-        </div>
-      </div>
-    </section>`);
-  const art = element.querySelector('.art');
-  const bars = element.querySelector('.bars');
-  const elapsed = element.querySelector('.elapsed');
-  const status = element.querySelector('.status');
-  const button = playButton('big');
-  element.querySelector('.controls-row').append(button.element);
-
-  const owner = `snippet-${formatCode(snippet)}`;
-  let track = null;
-  let buffer = null;
-  let preparing = true;
-  let loaded = false;
-  let browser = null;
-
-  const view = { element, enter, update, tick };
-
-  button.element.addEventListener('click', () => {
-    haptics.tap();
-    play();
-  });
-  element.querySelector('.listen').addEventListener('click', (event) => {
-    const target = event.target.closest('[data-open]')?.dataset.open;
-    if (target === 'apple' && track?.appleMusicURL) openLink(track.appleMusicURL);
-    if (target === 'spotify' && track) openLink(spotifySearchURL(track));
-  });
-
-  function enter() {
-    paintChrome(element.dataset.tint ?? '#3d2e73');
-    backButton.set(null);
-    showMainButton();
-    if (!loaded) {
-      loaded = true;
-      load();
-    }
-    requestAnimationFrame(update);
-  }
-
-  function showMainButton() {
-    if (snippet.intent === 'send') {
-      mainButton.show('Send to Chat', () => send(snippet, track), { light: true, enabled: Boolean(track) });
-    } else {
-      mainButton.show('Reply with a Snippet', () => {
-        browser ??= browserView({ onBack: () => mount(view) });
-        mount(browser);
-      }, { light: true });
-    }
-  }
-
-  async function load() {
-    setStatus(null);
-    preparing = true;
-    update();
-    try {
-      track = await lookupTrack(snippet.trackId, snippet.storefront);
-      if (!track) throw new Error('This song isn’t available on Apple Music anymore.');
-    } catch (error) {
-      preparing = false;
-      update();
-      setStatus(error instanceof CatalogError || !(error instanceof TypeError) ? error.message
-        : 'Couldn’t load this snippet. Check your connection and try again.', load);
-      return;
-    }
-    element.querySelector('.titles').innerHTML = titles(track);
-    if (track.artworkURL) art.src = track.artworkURL;
-    element.querySelector('.listen').hidden = false;
-    applyTint(element, track, view);
-    if (current === view) showMainButton();
-
-    buffer = await loadPreview(track.previewURL).catch(() => null);
-    preparing = false;
-    if (current === view) play(); // plays on open, like tapping a MIFS bubble in Messages
-    update();
-  }
-
-  function play() {
-    if (!track) return;
-    player.toggle({ owner, buffer, url: buffer ? null : track.previewURL, start: snippet.start, duration: snippet.duration });
-  }
-
-  function setStatus(message, retry) {
-    status.hidden = !message;
-    status.innerHTML = message ? `${escapeHTML(message)}${retry ? '<br><button class="retry" type="button">Try Again</button>' : ''}` : '';
-    status.querySelector('.retry')?.addEventListener('click', retry);
-  }
-
-  function update() {
-    const active = player.isActive(owner);
-    button.render(preparing && !active ? 'loading' : active ? player.state : 'idle', active ? player.progress : 0);
-    art.classList.toggle('playing', active && player.state === 'playing');
-    tick();
-  }
-
-  function tick() {
-    const active = player.isActive(owner);
-    const progress = active ? player.progress : 0;
-    drawBars(bars, snippet.waveform, progress);
-    elapsed.textContent = clock(progress * snippet.duration);
-    button.render(active ? player.state : preparing ? 'loading' : 'idle', progress);
-  }
-
-  return view;
-}
-
-// Server mifs stream only their selected interval, with lyrics in original song time.
-function mifPlayerView(snippet) {
   const element = html(`<section class="player dark"><div class="backdrop"><div class="backdrop-art"></div></div>
     <div class="screen"><div class="art-wrap"><img class="art" alt=""></div>
     <div class="titles"><h1>Loading song…</h1></div><div class="mif-lyrics" hidden></div>
@@ -351,11 +221,19 @@ function mifPlayerView(snippet) {
   audio.onerror = () => { if (alive) status.textContent = 'Couldn’t play this mif. Tap Play to retry.'; };
   // Some WebViews require one gesture after opening. Retry once on that first gesture.
   function unlock(event) { if (!event.target.closest('.play') && audio.paused && alive) play(); }
+  // Opened by the sender from the MIFS app: straight to Telegram's share sheet, which previews the card and
+  // sends it as soon as a chat is picked. "Send to Chat" stays for another go if the sheet is dismissed.
+  const sharesOnOpen = inTelegram && snippet.intent === 'send' && !fromInline;
+  let shared = false;
   function enter() {
     alive = true; paintChrome('#3d2e73'); backButton.set(null);
     mainButton.hide();
-    element.addEventListener('pointerdown', unlock, { once: true });
-    play();
+    if (sharesOnOpen) {
+      if (!shared) { shared = true; send(snippet); }
+    } else {
+      element.addEventListener('pointerdown', unlock, { once: true });
+      play();
+    }
     api(`mifs/${snippet.mifId}`).then(data => {
       if (!alive) return;
       resolved = data; snippet = { ...data.snippet, intent: snippet.intent };
@@ -365,7 +243,7 @@ function mifPlayerView(snippet) {
         const p = document.createElement('p'); p.textContent = line.text; return p;
       }));
       applyTint(element, data.track, view);
-      if (snippet.intent === 'send') mainButton.show('Send to Chat', () => send(snippet, data.track), { light: true });
+      if (snippet.intent === 'send') mainButton.show('Send to Chat', () => send(snippet), { light: true });
       else mainButton.show('Reply with a Mif', () => mount(browserView()), { light: true });
       tick();
     }).catch(error => { if (alive) status.textContent = error.message; });
@@ -450,9 +328,9 @@ function browserView({ onBack } = {}) {
     chartsLoading = true;
     render();
     try {
-      charts = await topSongs(storefront);
+      charts = await topSongs();
     } catch (error) {
-      chartsError = error instanceof CatalogError ? error.message : 'Couldn’t reach MIFS. Check your connection and try again.';
+      chartsError = error instanceof TypeError ? 'Couldn’t reach MIFS. Check your connection and try again.' : error.message;
     }
     chartsLoading = false;
     render();
@@ -462,13 +340,13 @@ function browserView({ onBack } = {}) {
     const query = term;
     controller = new AbortController();
     try {
-      const found = await search(query, storefront, { signal: controller.signal });
+      const found = await search(query, { signal: controller.signal });
       if (query !== term) return;
       results = found;
       searchError = null;
     } catch (error) {
       if (error.name === 'AbortError') return;
-      searchError = error instanceof CatalogError ? error.message : 'Couldn’t reach MIFS. Check your connection and try again.';
+      searchError = error instanceof TypeError ? 'Couldn’t reach MIFS. Check your connection and try again.' : error.message;
     }
     searching = false;
     render();
@@ -518,7 +396,7 @@ function row(track, rank) {
     <div class="row" data-id="${escapeHTML(track.id)}">
       <button class="open" type="button">
         ${rank ? `<span class="rank">${rank}</span>` : ''}
-        ${track.artworkURL ? `<img src="${escapeHTML(track.artworkURL.replace('600x600bb', '200x200bb'))}" alt="" loading="lazy">` : '<span class="thumb"></span>'}
+        ${track.artworkURL ? `<img src="${escapeHTML(track.thumbnailURL ?? track.artworkURL)}" alt="" loading="lazy">` : '<span class="thumb"></span>'}
         <span class="text">
           <strong>${escapeHTML(track.title)}${track.explicit ? '<span class="explicit" aria-label="Explicit"></span>' : ''}</strong>
           <span>${escapeHTML(track.artist)}</span>
@@ -568,7 +446,6 @@ function editorView(track, { onBack }) {
   if (track.artworkURL) art.src = track.artworkURL;
 
   const owner = `editor-${track.id}`;
-  let buffer = null;
   let waveform = null;
   let start = 0;
   let length = 10;
@@ -711,7 +588,7 @@ function editorView(track, { onBack }) {
     mainButton.busy(true);
     try {
       const mif = await api(`songs/${track.id}/mifs`, { body: { startMs: Math.round(start * 1000), durationMs: Math.round(length * 1000) } });
-      await send({ mifId: mif.id, start, duration: length, lyrics: mif.lyrics }, track);
+      await send({ mifId: mif.id });
     } catch (error) { notify(error.message); }
     finally { mainButton.busy(false); }
   }
@@ -809,21 +686,6 @@ function titles(track) {
     <p>${escapeHTML(track.artist)}</p>`;
 }
 
-/// Rounded bars with a played/unplayed split, like the app's WaveformBars.
-function drawBars(canvas, levels, progress) {
-  const { context, width, height } = prepareCanvas(canvas);
-  if (!levels.length) return;
-  const spacing = 3;
-  const barWidth = Math.max(1, (width - spacing * (levels.length - 1)) / levels.length);
-  levels.forEach((level, index) => {
-    const x = index * (barWidth + spacing);
-    const barHeight = Math.max(barWidth, height * level);
-    context.fillStyle = x + barWidth / 2 <= width * progress ? '#ffffff' : 'rgba(255, 255, 255, 0.35)';
-    roundRect(context, x, (height - barHeight) / 2, barWidth, barHeight, barWidth / 2);
-    context.fill();
-  });
-}
-
 function prepareCanvas(canvas) {
   const { width, height } = canvas.getBoundingClientRect();
   const scale = window.devicePixelRatio || 1;
@@ -849,7 +711,7 @@ const tints = new Map();
 
 function applyTint(element, track, view) {
   element.querySelector('.backdrop-art').style.backgroundImage = track.artworkURL ? `url("${track.artworkURL}")` : '';
-  tintFor(track.artworkURL).then((tint) => {
+  tintFor(track.thumbnailURL ?? track.artworkURL).then((tint) => {
     if (!tint) return;
     element.dataset.tint = tint;
     element.style.setProperty('--tint', tint);
@@ -863,7 +725,7 @@ function tintFor(url) {
     tints.set(url, (async () => {
       const image = new Image();
       image.crossOrigin = 'anonymous';
-      image.src = url.replace(/\/\d+x\d+bb\./, '/64x64bb.');
+      image.src = url;
       await image.decode();
       const canvas = document.createElement('canvas');
       canvas.width = canvas.height = 16;

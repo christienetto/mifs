@@ -9,11 +9,11 @@ it with spotDL. A download bar reports the transfer progress; the waveform appea
 full recording is ready. There are no song previews.
 
 Choose a preset or drag the waveform's start and end handles to select up to 20 seconds.
-One **Share** button offers the appropriate destination. Sharing stores only the song reference
+MIFS shares only to Messages and Telegram on iOS, and only to Telegram on Android. Sharing stores only the song reference
 and timestamps; recipients receive just that interval. **Recent** opens saved moments and
 lyrics, and received mifs play on opening.
 
-**Share → Telegram** opens the MIFS bot's player and chat picker. The recipient gets an artwork
+**Share → Telegram** opens Telegram's share sheet with a preview of the MIFS bot's card; picking a chat sends it. The recipient gets an artwork
 card with **Play Snippet**, which plays the selected interval inside Telegram. The Telegram
 Worker must be deployed with the public music-server setting; see [`telegram/README.md`](telegram/README.md).
 

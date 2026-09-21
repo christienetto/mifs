@@ -1,14 +1,10 @@
 import Foundation
 
-/// Carries a catalog snippet into Telegram, where the MIFS Mini App (see `telegram/`) plays and sends it.
+/// Carries a mif into Telegram, where the MIFS bot (see `telegram/`) sends it as a card and the Mini App plays it.
 ///
-/// Telegram passes a link's `startapp` value to the Mini App but allows only 512 characters of
-/// `A-Z a-z 0-9 _ -`, so just enough to rebuild the snippet travels: the song's catalog ID and
-/// storefront, the moment, and the waveform for legacy catalog snippets. Server snippets carry a mif ID
-/// and are resolved against the bot's public music server.
+/// Only the mif's ID travels; the bot loads the song, moment, artwork and audio from the MIFS music server.
 ///
-/// Format (mirrored by `telegram/public/snippet-code.js`):
-/// `<intent>1_<trackID>_<storefront>_<startMs>_<durationMs>_<waveform>`, e.g. `s1_1499378607_us_12345_10000_7fa3…`.
+/// Format (mirrored by `telegram/public/snippet-code.js`): `<intent>2_<mifID>`, e.g. `p2_abcdefghijkl`.
 nonisolated enum TelegramLink {
     enum Intent: String, Sendable {
         /// Opened by the sender from MIFS: the Mini App offers to send the snippet to a chat.
@@ -17,16 +13,6 @@ nonisolated enum TelegramLink {
         case play = "p"
     }
 
-    struct Payload: Equatable, Sendable {
-        var intent: Intent
-        var trackID: String
-        var storefront: String
-        var startMilliseconds: Int
-        var durationMilliseconds: Int
-        var waveform: [Float]
-    }
-
-    static let version = 1
     static let musicServerHost = "mifs.cgn.fi"
 
     /// The bot whose Main Mini App is MIFS, from the `MIFS_TELEGRAM_BOT` build setting.
@@ -53,48 +39,21 @@ nonisolated enum TelegramLink {
         }
     }
 
+    /// The code for a mif shared from the bot's music server; nil for anything else, which Telegram can't play.
     static func startParameter(for snippet: Snippet, intent: Intent) -> String? {
-        let track = snippet.track
-        if track.kind == .server, let page = snippet.shareURL,
-           page.scheme == "https", page.host() == musicServerHost,
-           page.port == nil || page.port == 443, page.user() == nil,
-           page.pathComponents.count == 3, page.pathComponents[1] == "m",
-           page.lastPathComponent.wholeMatch(of: /[a-z2-7]{12}/) != nil {
-            return "\(intent.rawValue)2_\(page.lastPathComponent)"
-        }
-        guard track.kind == .catalog, track.previewURL != nil,
-              track.id.wholeMatch(of: /[0-9]{1,15}/) != nil else { return nil }
-        return [
-            "\(intent.rawValue)\(version)",
-            track.id,
-            storefront(for: track),
-            String(Int((snippet.start * 1000).rounded())),
-            String(Int((snippet.duration * 1000).rounded())),
-            SnippetLink.encode(Array(snippet.waveform.prefix(64))),
-        ].joined(separator: "_")
+        guard snippet.track.kind == .server, let page = snippet.shareURL,
+              page.scheme == "https", page.host() == musicServerHost,
+              page.port == nil || page.port == 443, page.user() == nil,
+              page.pathComponents.count == 3, page.pathComponents[1] == "m",
+              page.lastPathComponent.wholeMatch(of: /[a-z2-7]{12}/) != nil else { return nil }
+        return "\(intent.rawValue)2_\(page.lastPathComponent)"
     }
 
-    static func payload(from parameter: String) -> Payload? {
-        let parts = parameter.split(separator: "_", omittingEmptySubsequences: false).map(String.init)
-        guard parts.count == 6,
-              parts[0].count == 2, parts[0].hasSuffix(String(version)),
-              let intent = Intent(rawValue: String(parts[0].prefix(1))),
-              parts[1].wholeMatch(of: /[0-9]{1,15}/) != nil,
-              parts[2].wholeMatch(of: /[a-z]{2}/) != nil,
-              parts[3].wholeMatch(of: /[0-9]{1,6}/) != nil, parts[4].wholeMatch(of: /[0-9]{1,5}/) != nil,
-              let start = Int(parts[3]), let duration = Int(parts[4]), duration > 0,
-              parts[5].wholeMatch(of: /[0-9a-f]{0,64}/) != nil else { return nil }
-        return Payload(
-            intent: intent,
-            trackID: parts[1],
-            storefront: parts[2],
-            startMilliseconds: start,
-            durationMilliseconds: duration,
-            waveform: SnippetLink.decode(parts[5])
-        )
-    }
+    /// Whether the snippet can be sent in Telegram: a mif the MIFS bot can play.
+    static func canSend(_ snippet: Snippet) -> Bool { appURL(for: snippet) != nil }
 
-    /// Opens the MIFS Mini App inside the Telegram app.
+    /// Opens the MIFS Mini App in the Telegram app, which goes straight to Telegram's share sheet: a preview of
+    /// the mif's card, sent as soon as a chat is picked.
     static func appURL(for snippet: Snippet) -> URL? {
         guard isConfigured, let parameter = startParameter(for: snippet, intent: .send) else { return nil }
         var components = URLComponents()
@@ -120,13 +79,4 @@ nonisolated enum TelegramLink {
         return components.url
     }
 
-    /// The storefront the song was found in, so the recipient's lookup finds the same catalog entry.
-    private static func storefront(for track: Track) -> String {
-        if let first = track.appleMusicURL?.pathComponents.dropFirst().first?.lowercased(),
-           first.wholeMatch(of: /[a-z]{2}/) != nil {
-            return first
-        }
-        let current = CatalogService.shared.storefront
-        return current.wholeMatch(of: /[a-z]{2}/) != nil ? current : "us"
-    }
 }

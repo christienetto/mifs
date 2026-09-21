@@ -3,6 +3,7 @@ package com.mifs.android
 import android.content.Intent
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
@@ -49,13 +50,10 @@ class DeviceFlowTest {
         device.waitForIdle()
         device.takeScreenshot(File(context.getExternalFilesDir(null), "editor.png"))
         device.findObject(By.res("share")).click()
-        assertTrue(device.wait(Until.hasObject(By.res("share-telegram")), 15_000))
-        device.findObject(By.res("share-other")).click()
-        assertTrue(device.wait(Until.hasObject(By.res("android", "content_preview_text")), 15_000))
-        assertTrue(device.findObject(By.res("android", "content_preview_text")).text.contains("/m/"))
-        device.pressBack()
-        device.pressBack()
-        assertTrue(device.wait(Until.hasObject(By.res("nav-recent")), 5000))
+        // Android shares only to Telegram: MIFS hands the mif straight to Telegram (or t.me without Telegram).
+        assertTrue("MIFS didn't hand the mif to Telegram", waitFor(15_000) { device.currentPackageName != context.packageName })
+        context.startActivity(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+        assertTrue(device.wait(Until.hasObject(By.res("nav-recent")), 15_000))
         device.findObject(By.res("nav-recent")).click()
         assertTrue(device.wait(Until.hasObject(By.res("mif-neon-harbor")), 5000))
         device.takeScreenshot(File(context.getExternalFilesDir(null), "recent.png"))
@@ -87,5 +85,11 @@ class DeviceFlowTest {
             assertTrue(device.hasObject(By.text("5s moment")))
         } finally { device.setOrientationNatural(); device.unfreezeRotation() }
         device.pressBack()
+    }
+
+    private fun waitFor(timeout: Long, condition: () -> Boolean): Boolean {
+        val end = SystemClock.uptimeMillis() + timeout
+        while (SystemClock.uptimeMillis() < end) { if (condition()) return true; SystemClock.sleep(250) }
+        return condition()
     }
 }

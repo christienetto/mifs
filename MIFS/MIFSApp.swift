@@ -79,7 +79,7 @@ struct RootView: View {
             Button("OK", role: .cancel) {}
         } message: { Text(router.linkError ?? "") }
         .sheet(item: $composer.sharing) { snippet in MifSharePicker(snippet: snippet) }
-        .alert("Couldn't open Telegram", isPresented: Binding(get: { composer.shareError != nil }, set: { if !$0 { composer.shareError = nil } })) {
+        .alert("Couldn't Share", isPresented: Binding(get: { composer.shareError != nil }, set: { if !$0 { composer.shareError = nil } })) {
             Button("OK", role: .cancel) {}
         } message: { Text(composer.shareError ?? "") }
         .sheet(item: $composer.request) { request in

@@ -50,7 +50,6 @@ class MainActivity : ComponentActivity() {
     internal var notice by mutableStateOf<String?>(null)
     internal var incomplete by mutableStateOf(false)
     internal var sharing by mutableStateOf(false)
-    internal var sharePicker by mutableStateOf<JSONObject?>(null)
     internal var playback by mutableStateOf("idle")
     internal var playheadMs by mutableIntStateOf(0)
     internal var playbackProgress by mutableFloatStateOf(0f)
@@ -250,14 +249,15 @@ class MainActivity : ComponentActivity() {
             finally { sharing = false }
         }
     }
+    /** Android shares only to Telegram: mifs as the MIFS bot's card, clips of the user's own audio as an audio file. */
     private fun shareMif(value: JSONObject) {
-        if (TelegramLink.startParameter(value.optString("url")) != null && !value.has("localFile")) {
-            sharePicker = value
-        } else shareOtherApps(value)
+        if (value.has("localFile")) shareClipToTelegram(value) else shareTelegram(value)
     }
-    internal fun shareTelegram(value: JSONObject) {
-        sharePicker = null
-        val parameter = TelegramLink.startParameter(value.optString("url")) ?: return
+    private fun shareTelegram(value: JSONObject) {
+        val parameter = TelegramLink.startParameter(value.optString("url")) ?: run {
+            notice = "Telegram can only play mifs from the public MIFS server (https://mifs.cgn.fi). You can change the server in Settings."
+            return
+        }
         try {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(TelegramLink.appURL(parameter))))
         } catch (_: ActivityNotFoundException) {
@@ -265,18 +265,15 @@ class MainActivity : ComponentActivity() {
             catch (error: ActivityNotFoundException) { report(error) }
         }
     }
-    internal fun shareOtherApps(value: JSONObject) {
-        sharePicker = null
-        val ready = value.getJSONObject("song")
-        val send = Intent(Intent.ACTION_SEND)
-        if (value.has("localFile")) {
-            val uri = FileProvider.getUriForFile(this, "$packageName.files", File(filesDir, "clips/${value.getString("localFile")}"))
-            send.type = "audio/mp4"; send.putExtra(Intent.EXTRA_STREAM, uri)
-            send.clipData = android.content.ClipData.newRawUri("MIFS clip", uri); send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        } else {
-            send.type = "text/plain"; send.putExtra(Intent.EXTRA_TEXT, "${ready.optString("title")} — ${ready.optString("artist")}\n${value.getString("url")}")
+    private fun shareClipToTelegram(value: JSONObject) {
+        val uri = FileProvider.getUriForFile(this, "$packageName.files", File(filesDir, "clips/${value.getString("localFile")}"))
+        val send = Intent(Intent.ACTION_SEND).setType("audio/mp4").putExtra(Intent.EXTRA_STREAM, uri)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        send.clipData = android.content.ClipData.newRawUri("MIFS clip", uri)
+        for (telegram in TelegramLink.packages) {
+            try { startActivity(Intent(send).setPackage(telegram)); return } catch (_: ActivityNotFoundException) {}
         }
-        startActivity(Intent.createChooser(send, "Share your mif"))
+        notice = "Install Telegram to share your mif."
     }
     private fun refreshRecent() {
         recentMifs = try { JSONArray(prefs.getString("recent", "[]")).objects() } catch (_: Exception) { emptyList() }

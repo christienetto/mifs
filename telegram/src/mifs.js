@@ -16,7 +16,7 @@ export async function loadMif(env, id, fetchImpl = fetch) {
     snippet: { mifId: mif.id, trackId: mif.songId, start: mif.startMs / 1000,
       duration: mif.durationMs / 1000, lyrics: Array.isArray(mif.lyrics) ? mif.lyrics : [] },
     track: { id: mif.songId, title: String(mif.song.title).slice(0, 200), artist: String(mif.song.artist).slice(0, 200),
-      artworkURL: mif.song.artwork?.url, explicit: mif.song.explicit },
+      artworkURL: mif.song.artwork?.url, thumbnailURL: mif.song.artwork?.thumbnailUrl, explicit: mif.song.explicit },
   };
 }
 

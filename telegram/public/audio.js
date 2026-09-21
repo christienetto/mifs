@@ -1,12 +1,9 @@
-// Snippet audio for the Mini App, matching the iOS app: Apple's 30-second preview is decoded once,
-// its loudness envelope drives the waveform and the suggested moment (WaveformAnalyzer), and snippets
-// play with the same short fades (SnippetFades) so they never start or stop with a click.
+// Snippet audio for the Mini App, matching the iOS app: songs stream from the MIFS music server, and the
+// server's loudness envelope drives the waveform and the suggested moment (WaveformAnalyzer).
 
 import { clamp } from './snippet-code.js';
 
 export const RESOLUTION = 10; // envelope points per second, as Waveform.resolution
-const FADE_IN = 0.08;
-const FADE_OUT = 0.4;
 
 let sharedContext;
 
@@ -28,50 +25,23 @@ export function unlockOnFirstGesture() {
   window.addEventListener('pointerdown', unlock, true);
 }
 
-export async function loadPreview(url) {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`Preview request failed (${response.status})`);
-  const data = await response.arrayBuffer();
-  const context = audioContext();
-  return new Promise((resolve, reject) => context.decodeAudioData(data, resolve, reject));
-}
-
 /// Plays one range at a time. `onChange` fires whenever `state` changes: 'idle' | 'loading' | 'playing'.
 export class SnippetPlayer {
   constructor(onChange = () => {}) {
     this.onChange = onChange;
     this.state = 'idle';
     this.owner = null;
-    this.source = null;
     this.element = null;
   }
 
-  /// Plays `duration` seconds from `start` of a decoded preview, or streams `url` when decoding isn't available.
-  async play({ owner, buffer, url, start, duration }) {
+  /// Streams `duration` seconds of `url` from `start`.
+  async play({ owner, url, start, duration }) {
     this.stop();
     this.owner = owner;
     this.range = { start, duration };
     this.set('loading');
 
-    if (buffer) {
-      const context = audioContext();
-      await Promise.race([context.resume(), new Promise((resolve) => setTimeout(resolve, 400))]);
-      if (context.state !== 'running' || this.owner !== owner) return this.finish(owner);
-      const gain = context.createGain();
-      const source = context.createBufferSource();
-      source.buffer = buffer;
-      source.connect(gain).connect(context.destination);
-      const now = context.currentTime + 0.02;
-      const fadeOut = Math.min(FADE_OUT, duration / 4);
-      gain.gain.setValueAtTime(0, now);
-      gain.gain.linearRampToValueAtTime(1, now + FADE_IN);
-      gain.gain.setValueAtTime(1, now + duration - fadeOut);
-      gain.gain.linearRampToValueAtTime(0, now + duration);
-      source.onended = () => this.finish(owner);
-      source.start(now, start, duration);
-      this.source = source;
-      this.startedAt = now;
-    } else if (url) {
+    if (url) {
       const element = new Audio(url);
       element.crossOrigin = 'anonymous';
       this.element = element;
@@ -106,9 +76,7 @@ export class SnippetPlayer {
   /// 0…1 through the playing range.
   get progress() {
     if (this.state !== 'playing' || !this.range) return 0;
-    const elapsed = this.source
-      ? audioContext().currentTime - this.startedAt
-      : (this.element?.currentTime ?? this.range.start) - this.range.start;
+    const elapsed = (this.element?.currentTime ?? this.range.start) - this.range.start;
     return clamp(elapsed / this.range.duration, 0, 1);
   }
 
@@ -118,15 +86,10 @@ export class SnippetPlayer {
 
   finish(owner) {
     if (this.owner !== owner) return false;
-    if (this.source) {
-      this.source.onended = null;
-      try { this.source.stop(); } catch {}
-    }
     if (this.element) {
       this.element.pause();
       this.element.removeAttribute('src');
     }
-    this.source = null;
     this.element = null;
     this.owner = null;
     this.set('idle');
@@ -140,26 +103,6 @@ export class SnippetPlayer {
 }
 
 // MARK: - Analysis (ports of Waveform / WaveformAnalyzer)
-
-export function analyze(buffer) {
-  const channels = Array.from({ length: buffer.numberOfChannels }, (_, index) => buffer.getChannelData(index));
-  const perPoint = Math.max(1, Math.floor(buffer.sampleRate / RESOLUTION));
-  const points = Math.ceil(buffer.length / perPoint);
-  const rms = new Array(points);
-  for (let point = 0; point < points; point += 1) {
-    const first = point * perPoint;
-    const last = Math.min(buffer.length, first + perPoint);
-    let sum = 0;
-    for (let index = first; index < last; index += 1) {
-      let sample = 0;
-      for (const channel of channels) sample += channel[index];
-      sample /= channels.length;
-      sum += sample * sample;
-    }
-    rms[point] = Math.sqrt(sum / Math.max(1, last - first));
-  }
-  return { levels: contrast(rms), rms, duration: buffer.duration };
-}
 
 /// RMS mapped to 0…1 in decibels between the track's own quiet floor and its peak.
 export function contrast(rms) {

@@ -218,7 +218,7 @@ private fun PlayerActions(app: MainActivity, compact: Boolean = false) {
                 disabledContainerColor = Color.White.copy(alpha = .65f), disabledContentColor = Night), shape = CircleShape) {
             if (app.sharing) CircularProgressIndicator(Modifier.size(18.dp), color = Night, strokeWidth = 2.dp)
             else Icon(Icons.AutoMirrored.Rounded.Send, null, Modifier.size(18.dp))
-            Spacer(Modifier.width(10.dp)); Text(if (app.sharing) "Making your mif…" else "Share mif", style = MaterialTheme.typography.labelLarge)
+            Spacer(Modifier.width(10.dp)); Text(if (app.sharing) "Making your mif…" else "Send in Telegram", style = MaterialTheme.typography.labelLarge)
         }
     }
 }

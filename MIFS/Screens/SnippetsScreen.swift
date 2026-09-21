@@ -4,7 +4,6 @@ struct SnippetsScreen: View {
     @Environment(AppRouter.self) private var router
     @Environment(ComposeCenter.self) private var composer
     @State private var store = SnippetStore.shared
-    @State private var sharing: Snippet?
     @State private var selected: Snippet?
 
     var body: some View {
@@ -30,10 +29,6 @@ struct SnippetsScreen: View {
                     .toolbarColorScheme(.dark, for: .navigationBar)
             }
         }
-        .sheet(item: $sharing) { snippet in
-            ShareSheet(items: ShareItems.items(for: snippet)) { sharing = nil }
-                .presentationDetents([.medium, .large])
-        }
     }
 
     private var list: some View {
@@ -50,7 +45,7 @@ struct SnippetsScreen: View {
                     .swipeActions(edge: .leading) {
                         Button("Send", systemImage: "arrow.up.message.fill") { send(snippet) }
                             .tint(Theme.violet)
-                        if TelegramLink.isConfigured {
+                        if TelegramLink.canSend(snippet) {
                             Button("Telegram", systemImage: "paperplane.fill") { sendToTelegram(snippet) }
                                 .tint(Theme.telegram)
                         }
@@ -60,7 +55,7 @@ struct SnippetsScreen: View {
                     }
                     .contextMenu {
                         Button("Send in Messages", systemImage: "arrow.up.message") { send(snippet) }
-                        if TelegramLink.isConfigured {
+                        if TelegramLink.canSend(snippet) {
                             Button("Send in Telegram", systemImage: "paperplane") { sendToTelegram(snippet) }
                         }
                         Button("Share…", systemImage: "square.and.arrow.up") { composer.share(snippet) }

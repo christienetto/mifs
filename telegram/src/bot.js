@@ -1,8 +1,8 @@
 // The MIFS bot: a thin companion to the Mini App. It greets people who open it directly, and answers
-// inline queries so a snippet made from the "@bot" button in a chat lands back in that same chat.
+// "@bot <code>" inline queries with the mif's card from the MIFS music server — typed in by the MIFS app
+// after choosing a chat, or by the Mini App so a snippet made from the "@bot" button lands in that chat.
 
 import { loadMif } from './mifs.js';
-import { lookupTrack } from '../public/catalog.js';
 import { parseCode } from '../public/snippet-code.js';
 import { snippetResult } from './card.js';
 
@@ -35,7 +35,7 @@ export async function handleUpdate(update, { env, origin, fetchImpl = fetch }) {
       text: [
         '🎵 <b>MIFS</b> sends the best moment of a song, not the whole thing.',
         '',
-        'Pick any 5–15 seconds of a song and send it to a chat, where it plays right in the conversation.',
+        'Pick up to 20 seconds of a song and send it to a chat, where it plays right in the conversation.',
         '',
         'On iPhone, make a snippet in the MIFS app and tap <b>Telegram</b>. Or make one right here.',
       ].join('\n'),
@@ -52,21 +52,14 @@ export async function handleUpdate(update, { env, origin, fetchImpl = fetch }) {
 
 async function answerInlineQuery(query, { env, origin, fetchImpl }) {
   const makeButton = { text: '🎵 Make a Snippet', web_app: { url: `${origin}/?from=inline` } };
-  let snippet = parseCode(query.query);
-  let results = [];
-  if (snippet) {
-    let track;
-    if (snippet.mifId) {
-      const resolved = await loadMif(env, snippet.mifId, fetchImpl).catch(() => null);
-      if (resolved) { snippet = resolved.snippet; track = resolved.track; }
-    } else { track = await lookupTrack(snippet.trackId, snippet.storefront, fetchImpl).catch(() => null); }
-    if (track) results = [snippetResult({ snippet, track, botUsername: env.BOT_USERNAME })];
-  }
+  const code = parseCode(query.query);
+  const mif = code ? await loadMif(env, code.mifId, fetchImpl).catch(() => null) : null;
   return {
     method: 'answerInlineQuery',
     inline_query_id: query.id,
-    results,
+    results: mif ? [snippetResult({ ...mif, botUsername: env.BOT_USERNAME })] : [],
     button: makeButton,
-    cache_time: snippet ? 3600 : 300,
+    // Mifs never change; a mif the music server couldn't load is retried soon.
+    cache_time: mif ? 3600 : code ? 5 : 300,
   };
 }

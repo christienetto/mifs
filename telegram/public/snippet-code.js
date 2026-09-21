@@ -1,54 +1,18 @@
-// The snippet "code" carried by Telegram start parameters and inline queries.
-// Mirrors MIFS/Telegram/TelegramLink.swift:
-//   <intent>1_<trackId>_<storefront>_<startMs>_<durationMs>_<waveform>
+// The snippet "code" carried by Telegram start parameters and inline queries: a mif on the MIFS music server.
+// Mirrors MIFS/Telegram/TelegramLink.swift and android/…/TelegramLink.kt:
+//   <intent>2_<mifId>
 // intent: "s" = opened by the sender to send it, "p" = opened from a chat to play it.
-// waveform: one hex digit (0–f) per bar, like SnippetLink's mifs_w.
 
-export const VERSION = 1;
 export const LENGTHS = [5, 10, 15, 20];
-export const WAVEFORM_BARS = 40;
-
-const PATTERN = /^([sp])1_([0-9]{1,15})_([a-z]{2})_([0-9]{1,6})_([0-9]{1,5})_([0-9a-f]{0,64})$/;
 
 export function parseCode(value) {
-  const mif = /^([sp])2_([a-z2-7]{12})$/.exec(String(value ?? '').trim());
-  if (mif) return { intent: mif[1] === 's' ? 'send' : 'play', mifId: mif[2] };
-  const match = PATTERN.exec(String(value ?? '').trim());
-  if (!match) return null;
-  const [, intent, trackId, storefront, startMs, durationMs, waveform] = match;
-  const duration = Number(durationMs) / 1000;
-  if (duration <= 0) return null;
-  return {
-    intent: intent === 's' ? 'send' : 'play',
-    trackId,
-    storefront,
-    start: Number(startMs) / 1000,
-    duration,
-    waveform: decodeWaveform(waveform),
-  };
+  const match = /^([sp])2_([a-z2-7]{12})$/.exec(String(value ?? '').trim());
+  return match ? { intent: match[1] === 's' ? 'send' : 'play', mifId: match[2] } : null;
 }
 
-export function formatCode({ intent = 'play', mifId, trackId, storefront, start, duration, waveform = [] }) {
-  if (mifId) {
-    if (!/^[a-z2-7]{12}$/.test(mifId)) throw new Error('Invalid mif ID');
-    return `${intent === 'send' ? 's' : 'p'}2_${mifId}`;
-  }
-  return [
-    `${intent === 'send' ? 's' : 'p'}${VERSION}`,
-    String(trackId),
-    String(storefront || 'us').toLowerCase(),
-    String(Math.round(start * 1000)),
-    String(Math.round(duration * 1000)),
-    encodeWaveform(waveform.slice(0, 64)),
-  ].join('_');
-}
-
-export function encodeWaveform(levels) {
-  return levels.map((level) => Math.round(clamp(level, 0, 1) * 15).toString(16)).join('');
-}
-
-export function decodeWaveform(hex) {
-  return [...hex].map((digit) => parseInt(digit, 16) / 15);
+export function formatCode({ intent = 'play', mifId }) {
+  if (!/^[a-z2-7]{12}$/.test(mifId)) throw new Error('Invalid mif ID');
+  return `${intent === 'send' ? 's' : 'p'}2_${mifId}`;
 }
 
 export function clamp(value, min, max) {

@@ -1,32 +1,30 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { handleUpdate } from '../src/bot.js';
-import { sanitizeTrack, snippetResult } from '../src/card.js';
+import { snippetResult } from '../src/card.js';
 import { signInitData, verifyInitData } from '../src/init-data.js';
 import worker from '../src/worker.js';
 
 const BOT_TOKEN = '123456:TEST-token';
-const env = { BOT_TOKEN, BOT_USERNAME: 'MIFSAppBot', WEBHOOK_SECRET: 'hook-secret' };
-const CODE = 's1_1499378607_us_12345_10000_08f4';
+const env = { BOT_TOKEN, BOT_USERNAME: 'MIFSAppBot', WEBHOOK_SECRET: 'hook-secret', MIFS_SERVER_URL: 'https://music.example' };
+const CODE = 's2_abcdefghijkl';
+const LEGACY_APPLE_CODE = 's1_1499378607_us_12345_10000_08f4';
 
-const lookupResponse = {
-  resultCount: 1,
-  results: [{
-    wrapperType: 'track', kind: 'song', trackId: 1499378607, trackName: 'Blinding <Lights>', artistName: 'The Weeknd',
-    collectionName: 'After Hours', trackExplicitness: 'notExplicit',
-    artworkUrl100: 'https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/a/b.jpg/100x100bb.jpg',
-    previewUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/x/mzaf_1.plus.aac.p.m4a',
-    trackViewUrl: 'https://music.apple.com/us/album/blinding-lights/1499378108?i=1499378607&uo=4',
-  }],
+const mifResponse = {
+  id: 'abcdefghijkl', songId: 'song', startMs: 12345, durationMs: 10000, lyrics: [],
+  song: {
+    title: 'Blinding <Lights>', artist: 'The Weeknd', explicit: false,
+    artwork: { url: 'https://music.example/media/art.jpg', thumbnailUrl: 'https://music.example/media/thumb.jpg' },
+  },
 };
 
-/// A fetch that answers Apple lookups and Bot API calls, recording the Bot API calls it saw.
-function fakeFetch({ appleStatus = 200 } = {}) {
+/// A fetch that answers the music server's mif and Bot API calls, recording the Bot API calls it saw.
+function fakeFetch({ serverStatus = 200 } = {}) {
   const calls = [];
   const fetchImpl = async (url, init = {}) => {
     const href = String(url);
-    if (href.startsWith('https://itunes.apple.com/lookup')) {
-      return new Response(JSON.stringify(lookupResponse), { status: appleStatus });
+    if (href === 'https://music.example/v1/mifs/abcdefghijkl') {
+      return Response.json(mifResponse, { status: serverStatus });
     }
     if (href.startsWith(`https://api.telegram.org/bot${BOT_TOKEN}/`)) {
       calls.push({ method: href.split('/').pop(), params: JSON.parse(init.body) });
@@ -79,45 +77,32 @@ test('computes Telegram’s documented hash', async () => {
 
 // MARK: - Card
 
-test('builds a photo card that opens the player in the chat', () => {
+test('builds a photo card from the music server’s artwork that opens the player in the chat', () => {
   const track = {
-    id: '1499378607', title: 'Blinding <Lights>', artist: 'The Weeknd & Co', explicit: true,
-    artworkURL: 'https://is1-ssl.mzstatic.com/image/thumb/a/b.jpg/600x600bb.jpg',
+    id: 'song', title: 'Blinding <Lights>', artist: 'The Weeknd & Co', explicit: true,
+    artworkURL: 'https://music.example/media/art.jpg', thumbnailURL: 'https://music.example/media/thumb.jpg',
   };
-  const snippet = { trackId: '1499378607', storefront: 'us', start: 12.345, duration: 10, waveform: [0, 0.5, 1, 0.25] };
+  const snippet = { mifId: 'abcdefghijkl', start: 12.345, duration: 10, lyrics: [] };
   const result = snippetResult({ snippet, track, botUsername: 'MIFSAppBot' });
 
   assert.equal(result.type, 'photo');
-  assert.equal(result.photo_url, 'https://is1-ssl.mzstatic.com/image/thumb/a/b.jpg/1000x1000bb.jpg');
-  assert.equal(result.thumbnail_url, 'https://is1-ssl.mzstatic.com/image/thumb/a/b.jpg/200x200bb.jpg');
+  assert.equal(result.id, 'abcdefghijkl');
+  assert.equal(result.photo_url, 'https://music.example/media/art.jpg');
+  assert.equal(result.thumbnail_url, 'https://music.example/media/thumb.jpg');
   assert.equal(result.parse_mode, 'HTML');
   assert.equal(result.caption, '🎵 <b>Blinding &lt;Lights&gt;</b> 🅴\nThe Weeknd &amp; Co');
   const [[button]] = result.reply_markup.inline_keyboard;
-  assert.equal(button.url, 'https://t.me/MIFSAppBot?startapp=p1_1499378607_us_12345_10000_08f4&mode=compact');
-  assert.ok(result.id.length <= 64);
+  assert.equal(button.url, 'https://t.me/MIFSAppBot?startapp=p2_abcdefghijkl&mode=compact');
 });
 
 test('falls back to a text card without artwork', () => {
   const result = snippetResult({
-    snippet: { trackId: '1', storefront: 'us', start: 0, duration: 5, waveform: [] },
-    track: { id: '1', title: 'Song', artist: 'Artist' },
+    snippet: { mifId: 'abcdefghijkl', start: 0, duration: 5 },
+    track: { id: 'song', title: 'Song', artist: 'Artist' },
     botUsername: 'MIFSAppBot',
   });
   assert.equal(result.type, 'article');
   assert.match(result.input_message_content.message_text, /Song/);
-});
-
-test('only trusts Apple URLs and plain text from the client', () => {
-  const clean = sanitizeTrack({
-    id: '7', title: ' Title\n', artist: 'Artist', explicit: 1,
-    artworkURL: 'https://evil.example/x.jpg', appleMusicURL: 'https://music.apple.com/us/album/x/1?i=7',
-  }, '7');
-  assert.deepEqual(clean, {
-    id: '7', title: 'Title', artist: 'Artist', explicit: true,
-    artworkURL: null, appleMusicURL: 'https://music.apple.com/us/album/x/1?i=7',
-  });
-  assert.equal(sanitizeTrack({ id: '8', title: 'x' }, '7'), null);
-  assert.equal(sanitizeTrack({ id: '7', title: '  ' }, '7'), null);
 });
 
 // MARK: - /api/share
@@ -140,24 +125,25 @@ test('prepares a message for the verified user', async () => {
   assert.equal(params.allow_user_chats, true);
   assert.equal(params.allow_group_chats, true);
   assert.equal(params.result.type, 'photo');
+  assert.equal(params.result.photo_url, 'https://music.example/media/art.jpg');
   assert.match(params.result.caption, /Blinding &lt;Lights&gt;/);
-  assert.match(params.result.reply_markup.inline_keyboard[0][0].url, /startapp=p1_1499378607_us_12345_10000_08f4/);
+  assert.match(params.result.reply_markup.inline_keyboard[0][0].url, /startapp=p2_abcdefghijkl/);
 });
 
-test('uses the Mini App’s metadata when Apple can’t be reached', async () => {
+test('reports a mif the music server can’t load', async () => {
   const { share } = await import('../src/worker.js');
-  const { fetchImpl, calls } = fakeFetch({ appleStatus: 403 });
-  const track = { id: '1499378607', title: 'Blinding Lights', artist: 'The Weeknd', artworkURL: 'https://is1-ssl.mzstatic.com/a/600x600bb.jpg' };
-  const response = await share(shareRequest({ initData: await initData(), code: CODE, track }), env, fetchImpl);
-  assert.equal(response.status, 200);
-  assert.match(calls[0].params.result.caption, /Blinding Lights/);
+  const { fetchImpl, calls } = fakeFetch({ serverStatus: 503 });
+  const response = await share(shareRequest({ initData: await initData(), code: CODE }), env, fetchImpl);
+  assert.equal(response.status, 502);
+  assert.equal(calls.length, 0);
 });
 
-test('refuses unverified users and bad codes', async () => {
+test('refuses unverified users, bad codes and legacy Apple codes', async () => {
   const { share } = await import('../src/worker.js');
   const { fetchImpl, calls } = fakeFetch();
   assert.equal((await share(shareRequest({ initData: 'user=%7B%22id%22%3A1%7D&hash=00', code: CODE }), env, fetchImpl)).status, 401);
   assert.equal((await share(shareRequest({ initData: await initData(), code: 'nope' }), env, fetchImpl)).status, 400);
+  assert.equal((await share(shareRequest({ initData: await initData(), code: LEGACY_APPLE_CODE }), env, fetchImpl)).status, 400);
   assert.equal(calls.length, 0);
 });
 
@@ -203,13 +189,23 @@ test('an inline query with a snippet code answers with its card', async () => {
   assert.equal(reply.method, 'answerInlineQuery');
   assert.equal(reply.results.length, 1);
   assert.equal(reply.results[0].type, 'photo');
+  assert.equal(reply.cache_time, 3600);
   assert.equal(reply.button.web_app.url, 'https://mifs.example/?from=inline');
 });
 
-test('any other inline query offers to make a snippet', async () => {
-  const reply = await handleUpdate({ inline_query: { id: 'iq', query: 'blinding' } }, { env, origin: 'https://mifs.example' });
+test('a mif the music server can’t load is offered again soon', async () => {
+  const { fetchImpl } = fakeFetch({ serverStatus: 503 });
+  const reply = await handleUpdate({ inline_query: { id: 'iq', query: CODE } }, { env, origin: 'https://mifs.example', fetchImpl });
   assert.deepEqual(reply.results, []);
-  assert.equal(reply.button.text, '🎵 Make a Snippet');
+  assert.equal(reply.cache_time, 5);
+});
+
+test('any other inline query, including legacy Apple codes, offers to make a snippet', async () => {
+  for (const query of ['blinding', LEGACY_APPLE_CODE]) {
+    const reply = await handleUpdate({ inline_query: { id: 'iq', query } }, { env, origin: 'https://mifs.example' });
+    assert.deepEqual(reply.results, [], query);
+    assert.equal(reply.button.text, '🎵 Make a Snippet');
+  }
 });
 
 test('replies to the webhook with the Bot API call', async () => {
@@ -266,6 +262,25 @@ test('server mifs produce bot artwork cards with escaped lyrics and a play butto
   assert.match(result.caption, /You &amp; I &lt;sing&gt;/);
   assert.match(result.reply_markup.inline_keyboard[0][0].url, /startapp=p2_abcdefghijkl/);
   assert.equal(calls[0].user_id, 42);
+});
+
+test('an inline query with a server mif code answers with the mif card from the music server', async () => {
+  // The iOS app opens Telegram's chat picker with "@bot p2_<mifId>" typed into the chosen chat.
+  const serverEnv = { ...env, MIFS_SERVER_URL: 'https://music.example' };
+  const fetchImpl = async (url) => {
+    assert.equal(String(url), 'https://music.example/v1/mifs/abcdefghijkl');
+    return Response.json({ id: 'abcdefghijkl', songId: 'song', startMs: 12345, durationMs: 7250, lyrics: [],
+      song: { title: 'Song', artist: 'Artist', artwork: { url: 'https://music.example/media/art.jpg' } } });
+  };
+  const reply = await handleUpdate(
+    { inline_query: { id: 'iq', query: 'p2_abcdefghijkl', from: { id: 42 } } },
+    { env: serverEnv, origin: 'https://mifs.example', fetchImpl },
+  );
+  assert.equal(reply.method, 'answerInlineQuery');
+  const [result] = reply.results;
+  assert.equal(result.type, 'photo');
+  assert.equal(result.photo_url, 'https://music.example/media/art.jpg');
+  assert.equal(result.reply_markup.inline_keyboard[0][0].url, 'https://t.me/MIFSAppBot?startapp=p2_abcdefghijkl&mode=compact');
 });
 
 test('mif audio proxy preserves partial responses and never takes a client-supplied URL', async () => {

@@ -3,13 +3,12 @@
 //   POST /api/share    turns a snippet into a Telegram message the user can send with WebApp.shareMessage
 //   POST /telegram     the bot's webhook
 //   /app/…             links back into the MIFS iOS app (universal links; a fallback page elsewhere)
-// It keeps no state: a snippet is fully described by its code, and song details come from Apple's catalog.
+// It keeps no state: a snippet's code names a mif on the MIFS music server, which has the song, artwork and audio.
 
 import { loadMif, mifAudio, musicRequest } from './mifs.js';
-import { lookupTrack } from '../public/catalog.js';
 import { parseCode } from '../public/snippet-code.js';
 import { callBot, handleUpdate } from './bot.js';
-import { sanitizeTrack, snippetResult } from './card.js';
+import { snippetResult } from './card.js';
 import { verifyInitData } from './init-data.js';
 
 export default {
@@ -37,30 +36,25 @@ export default {
   },
 };
 
-/// Body: `{ initData, code, track? }`. Replies `{ id }`, a PreparedInlineMessage for WebApp.shareMessage.
+/// Body: `{ initData, code }`. Replies `{ id }`, a PreparedInlineMessage for WebApp.shareMessage.
 export async function share(request, env, fetchImpl = fetch) {
   const body = await request.json().catch(() => null);
   const auth = await verifyInitData(body?.initData, env.BOT_TOKEN);
   if (!auth?.user?.id) return json({ error: 'Open MIFS from Telegram to send snippets.' }, 401);
 
-  let snippet = parseCode(body.code);
-  if (!snippet) return json({ error: 'This snippet can’t be sent.' }, 400);
+  const code = parseCode(body.code);
+  if (!code) return json({ error: 'This snippet can’t be sent.' }, 400);
 
-  let track;
-  if (snippet.mifId) {
-    try {
-      const resolved = await loadMif(env, snippet.mifId, cachedFetch(fetchImpl));
-      snippet = { ...resolved.snippet, intent: snippet.intent }; track = resolved.track;
-    } catch { return json({ error: 'Couldn’t load this mif from the music server. Try again.' }, 502); }
-  } else {
-    track = await lookupTrack(snippet.trackId, snippet.storefront, cachedFetch(fetchImpl)).catch(() => null)
-      ?? sanitizeTrack(body.track, snippet.trackId);
+  let mif;
+  try {
+    mif = await loadMif(env, code.mifId, cachedFetch(fetchImpl));
+  } catch {
+    return json({ error: 'Couldn’t load this mif from the music server. Try again.' }, 502);
   }
-  if (!track) return json({ error: 'Couldn’t load this song. Try again.' }, 502);
 
   const prepared = await callBot(env, 'savePreparedInlineMessage', {
     user_id: auth.user.id,
-    result: snippetResult({ snippet, track, botUsername: env.BOT_USERNAME }),
+    result: snippetResult({ ...mif, botUsername: env.BOT_USERNAME }),
     allow_user_chats: true,
     allow_bot_chats: false,
     allow_group_chats: true,
@@ -96,7 +90,7 @@ background:#fff;color:#000;font-weight:600;text-decoration:none}</style></head>
   });
 }
 
-/// Lets Cloudflare cache Apple's catalog responses at the edge (ignored elsewhere).
+/// Lets Cloudflare cache the music server's mif responses at the edge, as mifs never change (ignored elsewhere).
 function cachedFetch(fetchImpl) {
   return (url, init = {}) => fetchImpl(url, { ...init, cf: { cacheTtl: 3600, cacheEverything: true } });
 }

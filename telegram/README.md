@@ -10,10 +10,11 @@ stateless Cloudflare Worker.
 | iMessage (unchanged) | `MSMessage` bubble; tap opens the MIFS player | audio attachment |
 | Telegram | photo card (artwork, song) with **▶︎ Play Snippet**; tap opens the MIFS player in the chat | native Telegram audio message (title, artist, artwork) via Telegram's share extension |
 
-**Sending from iOS or Android.** Choose **Share → Telegram** for a mif from `https://mifs.cgn.fi`.
-This opens `tg://resolve?domain=<bot>&startapp=s2_<mifId>&mode=compact`. Telegram shows the MIFS Mini App as a half-sheet playing the
-snippet, with **Send to Chat** → the server prepares the card (`savePreparedInlineMessage`) → Telegram's own chat
-picker (`WebApp.shareMessage`). Without Telegram installed, the same link opens on t.me.
+**Sending from iOS or Android.** Choose **Share → Telegram** for a mif from `https://mifs.cgn.fi`. This opens
+`tg://resolve?domain=<bot>&startapp=s2_<mifId>&mode=compact`. The MIFS Mini App opens and, without waiting for a
+tap, the server prepares the card (`savePreparedInlineMessage`) and Telegram's share sheet shows its preview
+(`WebApp.shareMessage`); picking a chat sends it. If the sheet is dismissed, **Send to Chat** opens it again.
+Without Telegram installed, the same link opens on t.me.
 
 **Receiving.** The card's button is a Main Mini App link (`t.me/<bot>?startapp=p2_<mifId>&mode=compact`), so anyone
 can play the exact moment inside Telegram on any platform, without installing anything. **Reply with a Snippet** opens the
@@ -24,15 +25,16 @@ Mini App's song browser and editor, the same flow as the iMessage extension.
 
 The server code (`<s|p>2_<mifId>`) references an immutable song interval stored by the music server.
 The Worker resolves metadata and proxies only the selected audio interval, including HTTP range requests.
-The iOS, Android, and Mini App codecs use the same fixture. Legacy Apple preview codes
-(`<s|p>1_<trackId>_<storefront>_<startMs>_<durationMs>_<waveform hex>`) remain supported.
+The iOS, Android, and Mini App codecs use the same fixture. Everything comes from the MIFS music server: the
+Mini App's top songs, search (including tracks the server fetches on demand), downloads, waveforms, lyrics and
+mifs, and the card's artwork. Nothing is looked up in or streamed from Apple Music.
 
-Owned audio stays on-device and uses the system share sheet. Legacy Apple previews are streamed from Apple.
+Owned audio stays on-device and uses the system share sheet.
 
 ## Layout
 
 ```
-public/          the Mini App (no build step): app.js, audio.js, catalog.js, snippet-code.js
+public/          the Mini App (no build step): app.js, audio.js, mifs.js, snippet-code.js
 src/worker.js    routes: static files, POST /api/share, POST /telegram (webhook)
 src/init-data.js Telegram initData verification (HMAC-SHA256)
 src/card.js      the chat card (InlineQueryResultPhoto)
@@ -74,7 +76,7 @@ npm run dev                   # local Worker + Mini App at http://localhost:8787
 ```
 
 Outside Telegram, the page substitutes its own bottom and back buttons, so the player
-(`/?code=p1_1499378607_us_12345_10000_…`), browser and editor can be tried in a desktop browser. Sending needs
+(`/?code=p2_<mifId>`), browser and editor can be tried in a desktop browser. Sending needs
 Telegram, because `initData` proves who is sending.
 
 ## Restoration validation (2026-09-20)

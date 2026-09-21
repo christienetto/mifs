@@ -5,6 +5,8 @@ import java.net.URI
 /** The same server-mif code used by iOS and the Telegram Mini App. */
 internal object TelegramLink {
     private const val bot = "MIFSAppBot"
+    /** Telegram's Android apps (Play Store, direct download, Telegram X), for sending clips as audio files. */
+    val packages = listOf("org.telegram.messenger", "org.telegram.messenger.web", "org.thunderdog.challegram")
     fun startParameter(page: String): String? {
         val url = try { URI(page) } catch (_: Exception) { return null }
         // The bot resolves IDs on the public server, so local/test-server IDs cannot be sent here.
